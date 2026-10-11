@@ -38,11 +38,18 @@ def get_embedder():
         try:
             from sentence_transformers import SentenceTransformer
             logger.info(f"Loading sentence-transformers model '{settings.EMBEDDING_MODEL}' on {settings.EMBEDDING_DEVICE}...")
-            # Set local_files_only or fast timeout
-            _EMBEDDER_INSTANCE = SentenceTransformer(
-                settings.EMBEDDING_MODEL,
-                device=settings.EMBEDDING_DEVICE
-            )
+            try:
+                # Fast offline load first
+                _EMBEDDER_INSTANCE = SentenceTransformer(
+                    settings.EMBEDDING_MODEL,
+                    device=settings.EMBEDDING_DEVICE,
+                    local_files_only=True
+                )
+            except Exception:
+                _EMBEDDER_INSTANCE = SentenceTransformer(
+                    settings.EMBEDDING_MODEL,
+                    device=settings.EMBEDDING_DEVICE
+                )
         except Exception as e:
             logger.warning(f"Could not load SentenceTransformer ({e}). Using deterministic local embedding fallback.")
             _EMBEDDER_INSTANCE = SimpleFallbackEmbedder(384)
@@ -100,6 +107,26 @@ class MeetingVectorStore:
         import faiss
 
         if not self.index_file.exists() or not self.meta_file.exists():
+            # Attempt to auto-rebuild index on-the-fly from transcript segments if available
+            try:
+                from app.core.database import SessionLocal
+                from app.models.db_models import TranscriptSegment
+                from app.services.chunker import chunk_transcript
+                db = SessionLocal()
+                segs = db.query(TranscriptSegment).filter(TranscriptSegment.meeting_id == self.meeting_id).order_by(TranscriptSegment.start_time).all()
+                db.close()
+                if segs:
+                    seg_dicts = [
+                        {"id": s.id, "start": s.start_time, "end": s.end_time, "speaker_label": s.speaker_label, "cleaned_text": s.cleaned_text}
+                        for s in segs
+                    ]
+                    chunks = chunk_transcript(seg_dicts, target_words_per_chunk=350, overlap_words=40)
+                    if chunks:
+                        self.build_index(chunks)
+            except Exception as rebuild_err:
+                logger.warning(f"Could not automatically rebuild index for meeting {self.meeting_id}: {rebuild_err}")
+
+        if not self.index_file.exists() or not self.meta_file.exists():
             return False
 
         try:
@@ -143,26 +170,15 @@ class MeetingVectorStore:
         top_chunks = self.search(query, top_k=3)
 
         if not top_chunks:
-            return "Information about this topic was not found in this meeting's recording.", []
+            return "This information was not found in the meeting recording.", []
 
         # Build context from top chunks
         context_blocks = []
-        citations_map: List[Citation] = []
-
         for chk in top_chunks:
             start_ts = format_timestamp(chk["start_time"])
             end_ts = format_timestamp(chk["end_time"])
             ts_str = f"{start_ts} - {end_ts}"
             context_blocks.append(f"[Time: {ts_str}]\n{chk['formatted_text']}")
-            
-            citations_map.append(Citation(
-                segment_id=chk["segment_ids"][0] if chk["segment_ids"] else None,
-                start_time=chk["start_time"],
-                end_time=chk["end_time"],
-                timestamp_str=ts_str,
-                speaker_label="Meeting Segment",
-                text=chk["formatted_text"][:200] + "..." if len(chk["formatted_text"]) > 200 else chk["formatted_text"]
-            ))
 
         rag_prompt = f"""
 You are the Meeting Intelligence AI assistant. Answer the user's question accurately using ONLY the provided meeting excerpts.
@@ -185,6 +201,10 @@ ANSWER:
 """
         ollama = OllamaClient()
         model = await ollama.resolve_model()
+        if not model:
+            raise RuntimeError(
+                "No local LLM model found in Ollama. Please ensure Ollama is running and has a model pulled (e.g. qwen2.5:7b, llama3.2:3b)."
+            )
         
         try:
             import httpx
@@ -201,9 +221,126 @@ ANSWER:
                 res = await client.post(f"{ollama.base_url}/api/generate", json=payload)
                 if res.status_code == 200:
                     answer = res.json().get("response", "").strip()
-                    return answer, citations_map
+                    abstention_phrases = [
+                        "not found in the meeting recording",
+                        "not found in this meeting",
+                        "not found in the recording",
+                        "not mentioned in the meeting",
+                        "not mentioned in the excerpts",
+                        "not mentioned in this recording",
+                        "not mentioned anywhere",
+                        "not addressed in the meeting",
+                        "does not mention",
+                        "no mention of",
+                        "cannot find any mention",
+                        "not provided in the transcript",
+                        "not discussed in the meeting",
+                        "not discussed during the meeting"
+                    ]
+                    if any(phrase in answer.lower() for phrase in abstention_phrases):
+                        return "This information was not found in the meeting recording.", []
+
+                    citations = self._extract_fine_grained_citations(query, answer, top_chunks)
+                    return answer, citations
+                else:
+                    raise RuntimeError(f"Ollama returned HTTP status {res.status_code}: {res.text}")
         except Exception as e:
             logger.error(f"Error calling Ollama for Q&A: {e}")
+            raise RuntimeError(f"Local AI service (Ollama) is temporarily unavailable: {str(e)}")
 
-        # Fallback response
-        return f"Based on the transcript excerpt around {citations_map[0].timestamp_str}: {top_chunks[0]['formatted_text'][:250]}...", citations_map
+    def _extract_fine_grained_citations(
+        self,
+        query: str,
+        answer: str,
+        top_chunks: List[Dict[str, Any]]
+    ) -> List[Citation]:
+        """
+        Extract the smallest relevant transcript spans with correct timestamps and speaker labels.
+        Never returns broad multi-minute chunks.
+        Scoped strictly to the selected meeting.
+        """
+        from app.core.database import SessionLocal
+        from app.models.db_models import TranscriptSegment
+        from app.services.grounding_verifier import extract_content_words
+        import re
+
+        # Collect segment IDs from candidate chunks
+        candidate_seg_ids = set()
+        for chk in top_chunks:
+            if chk.get("segment_ids"):
+                candidate_seg_ids.update(chk["segment_ids"])
+
+        db = SessionLocal()
+        try:
+            query_db = db.query(TranscriptSegment).filter(TranscriptSegment.meeting_id == self.meeting_id)
+            if candidate_seg_ids:
+                query_db = query_db.filter(TranscriptSegment.id.in_(candidate_seg_ids))
+            segments = query_db.all()
+        except Exception as e:
+            logger.error(f"Error fetching segments for citations: {e}")
+            segments = []
+        finally:
+            db.close()
+
+        if not segments:
+            return []
+
+        # Parse timestamps mentioned in the answer (e.g. [00:00:21] or 00:00:21)
+        timestamp_matches = re.findall(r"\b(?:\[)?(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\])?\b", answer)
+        cited_seconds = []
+        for m in timestamp_matches:
+            if m[2]:  # HH:MM:SS
+                secs = int(m[0]) * 3600 + int(m[1]) * 60 + int(m[2])
+            else:  # MM:SS
+                secs = int(m[0]) * 60 + int(m[1])
+            cited_seconds.append(secs)
+
+        query_words = extract_content_words(query)
+        answer_words = extract_content_words(answer)
+
+        scored_segments = []
+        for seg in segments:
+            seg_text = seg.cleaned_text or seg.raw_text or ""
+            seg_words = extract_content_words(seg_text)
+            if not seg_words:
+                continue
+
+            score = 0.0
+            # Strong boost if segment spans a timestamp explicitly cited in answer
+            for sec in cited_seconds:
+                if (seg.start_time - 1.5) <= sec <= (seg.end_time + 1.5):
+                    score += 15.0
+
+            # Semantic overlap with answer content
+            ans_common = len(seg_words.intersection(answer_words))
+            score += ans_common * 2.0
+
+            # Semantic overlap with query content
+            q_common = len(seg_words.intersection(query_words))
+            score += q_common * 1.0
+
+            if score > 1.5:
+                scored_segments.append((score, seg))
+
+        if not scored_segments:
+            return []
+
+        # Sort by score descending and take the 1-2 most relevant segments
+        scored_segments.sort(key=lambda x: x[0], reverse=True)
+        selected = [s[1] for s in scored_segments[:2]]
+        selected.sort(key=lambda s: s.start_time)
+
+        citations = []
+        for seg in selected:
+            start_ts = format_timestamp(seg.start_time)
+            end_ts = format_timestamp(seg.end_time)
+            citations.append(Citation(
+                segment_id=seg.id,
+                start_time=seg.start_time,
+                end_time=seg.end_time,
+                timestamp_str=f"{start_ts} - {end_ts}",
+                speaker_label=seg.speaker_label or "Speaker",
+                text=seg.cleaned_text or seg.raw_text or ""
+            ))
+
+        return citations

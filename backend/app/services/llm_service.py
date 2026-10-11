@@ -92,10 +92,13 @@ class OllamaClient:
             "Analyze the meeting transcript objectively and extract factual, structured information. "
             "CRITICAL INSTRUCTIONS:\n"
             "1. Output ONLY valid JSON matching the requested schema.\n"
-            "2. Never invent names, facts, dates, decisions, or action items not stated in the transcript.\n"
-            "3. If any date or deadline is ambiguous, set needs_confirmation to true.\n"
-            "4. For evidence, cite the exact source text and segment IDs.\n"
-            "5. Sentiment is strictly an estimated tone observation, not an evaluation of participant competence."
+            "2. Never invent names, facts, dates, decisions, impacts, or action items not stated in the transcript.\n"
+            "3. If an action item does not have an explicitly identifiable assignee, set assignee to 'Unassigned'.\n"
+            "4. If an action item has no explicitly spoken deadline, set deadline to null. Never invent deadlines.\n"
+            "5. If a decision has no explicitly discussed context or impact, set context and impact to null.\n"
+            "6. If any date or deadline is ambiguous, set needs_confirmation to true.\n"
+            "7. For evidence, cite the exact source text and segment IDs.\n"
+            "8. Sentiment is strictly an estimated tone observation, not an evaluation of participant competence."
         )
 
         for attempt in range(1, max_retries + 1):
@@ -131,6 +134,35 @@ class OllamaClient:
                 raw_response = raw_response.strip()
 
                 parsed_json = json.loads(raw_response)
+                
+                # Sanitize common small-model variations (e.g. lists of strings instead of dicts)
+                if isinstance(parsed_json, dict):
+                    for field, key_name in [
+                        ("key_points", "point"),
+                        ("takeaways", "takeaway"),
+                        ("unresolved_questions", "question"),
+                        ("decisions", "decision"),
+                        ("action_items", "description")
+                    ]:
+                        if field in parsed_json and isinstance(parsed_json[field], list):
+                            clean_items = []
+                            for item in parsed_json[field]:
+                                if isinstance(item, str) and item.strip():
+                                    clean_items.append({key_name: item.strip()})
+                                elif isinstance(item, dict):
+                                    clean_items.append(item)
+                            parsed_json[field] = clean_items
+
+                    for field, req_key in [
+                        ("important_dates", "raw_phrase"),
+                        ("scheduled_events", "event_title")
+                    ]:
+                        if field in parsed_json and isinstance(parsed_json[field], list):
+                            parsed_json[field] = [
+                                it for it in parsed_json[field]
+                                if isinstance(it, dict) and (it.get(req_key) or it.get("source_text"))
+                            ]
+
                 validated_data = schema_class.model_validate(parsed_json)
                 return validated_data
 
@@ -149,9 +181,9 @@ class OllamaClient:
 
 def heuristic_extract_chunk(chunk: TranscriptChunk, meeting_title: str, meeting_date_str: str) -> ChunkAnalysis:
     """
-    High-accuracy linguistic and semantic pattern extractor that pulls action items,
-    decisions, important dates, key points, takeaways, questions, and section summaries
-    directly from transcript chunks. Guarantees non-empty extractions even when Ollama is offline.
+    Grounded linguistic pattern extractor that pulls action items, decisions,
+    important dates, key points, takeaways, and questions strictly from transcript chunks.
+    Never fabricates deadlines, impacts, or fictitious owners.
     """
     raw_text = chunk.formatted_text
     lines = [line.strip() for line in raw_text.split("\n") if line.strip()]
@@ -164,7 +196,6 @@ def heuristic_extract_chunk(chunk: TranscriptChunk, meeting_title: str, meeting_
     takeaways: List[TakeawayExtraction] = []
     unresolved_questions: List[UnresolvedQuestionExtraction] = []
 
-    # Regex patterns for high-signal meeting speech
     action_patterns = [
         re.compile(r'(?:i will|i\'ll|i am going to|i\'m going to|we need to|let\'s make sure to|please|action item|will follow up|will create|will update|will send|will prepare|will check|will fix|working on|responsible for)\s+([^.?!;]+)', re.IGNORECASE),
         re.compile(r'(?:assign(?:ed)?\s+to|todo:?)\s+([^.?!;]+)', re.IGNORECASE),
@@ -182,8 +213,7 @@ def heuristic_extract_chunk(chunk: TranscriptChunk, meeting_title: str, meeting_
     substantive_sentences = []
 
     for line in lines:
-        # Check speaker tag if present: e.g. "[00:01:23] Speaker 1: text" or "Speaker 1: text"
-        speaker_name = "Team Member"
+        speaker_name = "Unknown"
         speaker_match = re.match(r'^(?:\[[\d:]+\]\s*)?(.*?):\s*(.*)$', line)
         if speaker_match:
             speaker_name = speaker_match.group(1).strip()
@@ -194,16 +224,33 @@ def heuristic_extract_chunk(chunk: TranscriptChunk, meeting_title: str, meeting_
         if len(speech_body) > 15:
             substantive_sentences.append(speech_body)
 
-        # 1. Action Items
+        # 1. Action Items (Strict Grounding)
         for pat in action_patterns:
             m = pat.search(speech_body)
             if m:
                 act_text = m.group(0).strip()
                 if len(act_text) > 10:
+                    # Grounded assignee extraction: only if someone volunteered in 1st person or was explicitly assigned
+                    first_person_match = re.search(r'\b(?:i will|i\'ll|i am going to|i\'m going to)\b', speech_body, re.IGNORECASE)
+                    assigned_match = re.search(r'\bassign(?:ed)?\s+to\s+([A-Za-z]+(?:\s+[A-Za-z]+)?)\b', speech_body, re.IGNORECASE)
+                    
+                    if assigned_match:
+                        assignee = assigned_match.group(1).strip()
+                    elif first_person_match and speaker_name not in ["Unknown", "Speaker", "Unknown Speaker", "Team Member"]:
+                        assignee = speaker_name
+                    else:
+                        assignee = "Unassigned"
+
+                    # Grounded deadline extraction: only if explicitly stated in this sentence
+                    deadline = None
+                    date_match = date_patterns[0].search(speech_body)
+                    if date_match:
+                        deadline = date_match.group(0).strip()
+
                     action_items.append(ActionItemExtraction(
-                        description=f"{speaker_name}: {act_text}",
-                        assignee=speaker_name,
-                        deadline="As discussed in session",
+                        description=act_text,
+                        assignee=assignee,
+                        deadline=deadline,
                         priority="Medium",
                         source_segment_ids=chunk.segment_ids,
                         source_text=speech_body[:300],
@@ -213,7 +260,7 @@ def heuristic_extract_chunk(chunk: TranscriptChunk, meeting_title: str, meeting_
                     ))
                     break
 
-        # 2. Decisions
+        # 2. Decisions (Strict Grounding)
         for pat in decision_patterns:
             m = pat.search(speech_body)
             if m:
@@ -221,8 +268,8 @@ def heuristic_extract_chunk(chunk: TranscriptChunk, meeting_title: str, meeting_
                 if len(dec_text) > 10:
                     decisions.append(DecisionExtraction(
                         decision=dec_text,
-                        context=f"Agreed during section discussion ({chunk.start_time:.0f}s - {chunk.end_time:.0f}s).",
-                        impact="Sets direction and guidance for upcoming deliverables.",
+                        context=None,
+                        impact=None,
                         source_segment_ids=chunk.segment_ids,
                         source_text=speech_body[:300],
                         start_time=chunk.start_time,
@@ -237,10 +284,11 @@ def heuristic_extract_chunk(chunk: TranscriptChunk, meeting_title: str, meeting_
             if m:
                 date_str = m.group(0).strip()
                 if len(date_str) > 3:
+                    desc_text = speech_body[:120] if len(speech_body) > 10 else f"Date reference mentioned by {speaker_name}"
                     important_dates.append(ImportantDateExtraction(
                         raw_phrase=date_str,
                         normalized_date=None,
-                        description=f"Timeline reference discussed by {speaker_name}",
+                        description=desc_text,
                         needs_confirmation=True,
                         source_segment_ids=chunk.segment_ids,
                         source_text=speech_body[:300],
@@ -255,7 +303,7 @@ def heuristic_extract_chunk(chunk: TranscriptChunk, meeting_title: str, meeting_
             unresolved_questions.append(UnresolvedQuestionExtraction(
                 question=speech_body,
                 raised_by=speaker_name,
-                context=f"Raised at timestamp {chunk.start_time:.0f}s",
+                context=None,
                 source_segment_ids=chunk.segment_ids,
                 source_text=speech_body[:300],
                 start_time=chunk.start_time,
@@ -263,7 +311,7 @@ def heuristic_extract_chunk(chunk: TranscriptChunk, meeting_title: str, meeting_
                 confidence=0.85
             ))
 
-    # 5. Key Points (select top meaningful statements)
+    # 5. Key Points (Directly from substantive sentences)
     if substantive_sentences:
         for sent in substantive_sentences[:3]:
             if any(w in sent.lower() for w in ["we", "our", "project", "system", "feature", "client", "market", "test", "build", "release", "team", "product", "design", "plan", "data", "problem", "solution"]):
@@ -288,11 +336,11 @@ def heuristic_extract_chunk(chunk: TranscriptChunk, meeting_title: str, meeting_
                 confidence=0.80
             ))
 
-    # 6. Takeaways
+    # 6. Takeaways (Strictly from substantive sentences)
     if substantive_sentences:
         takeaways.append(TakeawayExtraction(
-            takeaway=f"Section {chunk.chunk_index} focused on: {substantive_sentences[0][:150]}",
-            category="Operational Alignment",
+            takeaway=substantive_sentences[0][:200],
+            category="Discussion Topic",
             source_segment_ids=chunk.segment_ids,
             source_text=substantive_sentences[0][:300],
             start_time=chunk.start_time,
@@ -300,22 +348,22 @@ def heuristic_extract_chunk(chunk: TranscriptChunk, meeting_title: str, meeting_
             confidence=0.85
         ))
 
-    # 7. Partial Summary
+    # 7. Partial Summary (Factual transcript sentence concatenation)
     if substantive_sentences:
         partial_summary = " ".join(substantive_sentences[:2])
     else:
-        partial_summary = f"Transcript section from {chunk.start_time:.1f}s to {chunk.end_time:.1f}s."
+        partial_summary = ""
 
     return ChunkAnalysis(
         chunk_index=chunk.chunk_index,
         partial_summary=partial_summary,
-        key_points=key_points[:3],
-        decisions=decisions[:2],
-        action_items=action_items[:3],
-        important_dates=important_dates[:2],
-        scheduled_events=scheduled_events[:2],
-        takeaways=takeaways[:2],
-        unresolved_questions=unresolved_questions[:2]
+        key_points=key_points,
+        decisions=decisions,
+        action_items=action_items,
+        important_dates=important_dates,
+        scheduled_events=scheduled_events,
+        takeaways=takeaways,
+        unresolved_questions=unresolved_questions
     )
 
 
@@ -339,6 +387,12 @@ TRANSCRIPT CHUNK:
 {chunk.formatted_text}
 
 Task: Extract structured information from this chunk.
+Instructions:
+- If an action item has no explicitly assigned owner or volunteer, set assignee to 'Unassigned'.
+- If an action item has no stated deadline, set deadline to null. Never invent deadlines.
+- If a decision has no discussed context or impact, set context and impact to null.
+- Set source_segment_ids to {chunk.segment_ids} and cite exact source_text.
+
 Return JSON with the following structure:
 {{
   "chunk_index": {chunk.chunk_index},
@@ -347,10 +401,10 @@ Return JSON with the following structure:
     {{ "point": "...", "category": "...", "source_segment_ids": {chunk.segment_ids}, "source_text": "...", "start_time": {chunk.start_time}, "end_time": {chunk.end_time}, "confidence": 0.95 }}
   ],
   "decisions": [
-    {{ "decision": "...", "context": "...", "impact": "...", "source_segment_ids": {chunk.segment_ids}, "source_text": "...", "start_time": {chunk.start_time}, "end_time": {chunk.end_time}, "confidence": 0.95 }}
+    {{ "decision": "...", "context": null, "impact": null, "source_segment_ids": {chunk.segment_ids}, "source_text": "...", "start_time": {chunk.start_time}, "end_time": {chunk.end_time}, "confidence": 0.95 }}
   ],
   "action_items": [
-    {{ "description": "...", "assignee": "Speaker Name or Unassigned", "deadline": "...", "priority": "Low|Medium|High|Urgent", "source_segment_ids": {chunk.segment_ids}, "source_text": "...", "start_time": {chunk.start_time}, "end_time": {chunk.end_time}, "confidence": 0.95 }}
+    {{ "description": "...", "assignee": "Unassigned", "deadline": null, "priority": "Low|Medium|High|Urgent", "source_segment_ids": {chunk.segment_ids}, "source_text": "...", "start_time": {chunk.start_time}, "end_time": {chunk.end_time}, "confidence": 0.95 }}
   ],
   "important_dates": [
     {{ "raw_phrase": "...", "normalized_date": "YYYY-MM-DD or null", "description": "...", "needs_confirmation": false, "source_segment_ids": {chunk.segment_ids}, "source_text": "...", "start_time": {chunk.start_time}, "end_time": {chunk.end_time}, "confidence": 0.95 }}
@@ -362,7 +416,7 @@ Return JSON with the following structure:
     {{ "takeaway": "...", "category": "...", "source_segment_ids": {chunk.segment_ids}, "source_text": "...", "start_time": {chunk.start_time}, "end_time": {chunk.end_time}, "confidence": 0.95 }}
   ],
   "unresolved_questions": [
-    {{ "question": "...", "raised_by": "...", "context": "...", "source_segment_ids": {chunk.segment_ids}, "source_text": "...", "start_time": {chunk.start_time}, "end_time": {chunk.end_time}, "confidence": 0.95 }}
+    {{ "question": "...", "raised_by": "...", "context": null, "source_segment_ids": {chunk.segment_ids}, "source_text": "...", "start_time": {chunk.start_time}, "end_time": {chunk.end_time}, "confidence": 0.95 }}
   ]
 }}
 """
@@ -370,7 +424,7 @@ Return JSON with the following structure:
         if result:
             return result
 
-        # Graceful heuristic fallback extraction
+        # Grounded heuristic fallback extraction (never hallucinates)
         return heuristic_extract_chunk(chunk, meeting_title, meeting_date_str)
 
     async def synthesize_analysis(
@@ -382,18 +436,28 @@ Return JSON with the following structure:
     ) -> Optional[MeetingAnalysis]:
         """
         Synthesize final coherent executive summary, deduplicated decisions, action items,
-        dates, questions, and sentiment report from all chunk-level extractions.
+        dates, questions, and sentiment report from all chunk-level extractions without silent truncation.
         """
         chunk_summaries = [f"- Section {c.chunk_index}: {c.partial_summary}" for c in chunks_analysis if c.partial_summary]
         
-        # Aggregate all items
-        all_key_points = [kp.model_dump() for c in chunks_analysis for kp in c.key_points]
-        all_decisions = [d.model_dump() for c in chunks_analysis for d in c.decisions]
-        all_action_items = [a.model_dump() for c in chunks_analysis for a in c.action_items]
-        all_dates = [d.model_dump() for c in chunks_analysis for d in c.important_dates]
-        all_events = [e.model_dump() for c in chunks_analysis for e in c.scheduled_events]
-        all_takeaways = [t.model_dump() for c in chunks_analysis for t in c.takeaways]
-        all_questions = [q.model_dump() for c in chunks_analysis for q in c.unresolved_questions]
+        # Deduplication helper
+        def dedupe_items(items: List[dict], key: str) -> List[dict]:
+            seen = set()
+            unique = []
+            for item in items:
+                val = (item.get(key) or "").strip().lower()
+                if val and val not in seen:
+                    seen.add(val)
+                    unique.append(item)
+            return unique
+
+        all_key_points = dedupe_items([kp.model_dump() for c in chunks_analysis for kp in c.key_points], "point")
+        all_decisions = dedupe_items([d.model_dump() for c in chunks_analysis for d in c.decisions], "decision")
+        all_action_items = dedupe_items([a.model_dump() for c in chunks_analysis for a in c.action_items], "description")
+        all_dates = dedupe_items([d.model_dump() for c in chunks_analysis for d in c.important_dates], "raw_phrase")
+        all_events = dedupe_items([e.model_dump() for c in chunks_analysis for e in c.scheduled_events], "event_title")
+        all_takeaways = dedupe_items([t.model_dump() for c in chunks_analysis for t in c.takeaways], "takeaway")
+        all_questions = dedupe_items([q.model_dump() for c in chunks_analysis for q in c.unresolved_questions], "question")
 
         synthesis_prompt = f"""
 Meeting Title: {meeting_title}
@@ -401,79 +465,75 @@ Meeting Date Context: {meeting_date_str}
 Participants: {', '.join(speakers_list) if speakers_list else 'Participants'}
 
 SECTION-BY-SECTION SUMMARIES:
-{chr(10).join(chunk_summaries)}
+{chr(10).join(chunk_summaries) if chunk_summaries else "No section summaries."}
 
-RAW EXTRACTIONS FROM CHUNKS:
-Key Points: {json.dumps(all_key_points[:15])}
-Decisions: {json.dumps(all_decisions[:10])}
-Action Items: {json.dumps(all_action_items[:15])}
-Dates: {json.dumps(all_dates[:10])}
-Events: {json.dumps(all_events[:10])}
-Takeaways: {json.dumps(all_takeaways[:10])}
-Questions: {json.dumps(all_questions[:10])}
+CANDIDATE EXTRACTIONS FROM TRANSCRIPT:
+Key Points: {json.dumps(all_key_points)}
+Decisions: {json.dumps(all_decisions)}
+Action Items: {json.dumps(all_action_items)}
+Dates: {json.dumps(all_dates)}
+Events: {json.dumps(all_events)}
+Takeaways: {json.dumps(all_takeaways)}
+Questions: {json.dumps(all_questions)}
 
-Task: Synthesize a polished, cohesive meeting analysis document.
+Task: Synthesize a factual, cohesive meeting intelligence analysis document.
+Critical Grounding Rules:
+- Do NOT invent any action item, decision, assignee, or deadline not found in the candidate extractions.
+- If an action item does not have an explicitly named owner, keep assignee as 'Unassigned'.
+- If an action item has no explicit deadline, keep deadline as null.
+- Include ALL valid decisions and action items; do not omit or truncate items.
+
 Return JSON matching this schema:
 {{
-  "executive_summary": "Thorough 2-3 paragraph executive summary covering objectives, key discussions, outcomes, and next milestones.",
-  "agenda_topics": ["Topic 1", "Topic 2", "Topic 3"],
-  "key_points": [ ... deduplicated key points ... ],
-  "decisions": [ ... deduplicated concrete decisions ... ],
-  "action_items": [ ... deduplicated action items with exact assignees and deadlines ... ],
-  "important_dates": [ ... important dates with needs_confirmation flagged if ambiguous ... ],
+  "executive_summary": "Comprehensive factual summary covering objectives, discussions, decisions, and next steps.",
+  "agenda_topics": ["Topic 1", "Topic 2", ...],
+  "key_points": [ ... all deduplicated key points ... ],
+  "decisions": [ ... all deduplicated concrete decisions ... ],
+  "action_items": [ ... all deduplicated action items ... ],
+  "important_dates": [ ... important dates ... ],
   "scheduled_events": [ ... scheduled events ... ],
   "takeaways": [ ... high-level takeaways ... ],
   "unresolved_questions": [ ... open unanswered questions ... ],
   "sentiment": {{
-    "overall_sentiment_estimate": "Constructive and collaborative",
-    "justification": "Clear discussion on requirements with aligned milestones.",
+    "overall_sentiment_estimate": "Factual tone observation",
+    "justification": "Evidence-based justification",
     "speaker_estimates": [
-      {{ "speaker_label": "Speaker 1", "estimated_tone": "Focused and directive", "observation": "Led agenda and assigned milestones." }}
+      {{ "speaker_label": "...", "estimated_tone": "...", "observation": "..." }}
     ]
   }}
 }}
 """
         result = await self.client.generate_json(synthesis_prompt, MeetingAnalysis)
         
-        # Fallback if LLM failed synthesis
+        # Grounded fallback if LLM synthesis is unavailable
         if result is None:
-            logger.info("Assembling structured comprehensive synthesis from extractions.")
+            logger.info("Assembling grounded synthesis directly from extractions without hallucination.")
             
-            # Formulate structured executive summary
-            summary_sections = [c.partial_summary for c in chunks_analysis if c.partial_summary]
+            summary_sections = [c.partial_summary.strip() for c in chunks_analysis if c.partial_summary and c.partial_summary.strip()]
             if summary_sections:
-                executive_summary = (
-                    f"During the '{meeting_title}' session held on {meeting_date_str}, participants reviewed ongoing initiatives and aligned on core objectives. "
-                    + " ".join(summary_sections[:3])
-                    + ("\n\nKey discussion areas included operational milestones, review of deliverables, and addressing open questions raised by the team." if len(summary_sections) > 3 else "")
-                )
+                executive_summary = "\n\n".join(summary_sections)
             else:
-                executive_summary = f"Executive summary for '{meeting_title}' on {meeting_date_str}. The team reviewed project status, key decisions, and scheduled action items."
+                executive_summary = f"Summary for '{meeting_title}' on {meeting_date_str}."
 
-            # Topics
-            agenda_topics = ["Project Overview", "Key Decisions & Deliverables", "Action Items & Milestones"]
-            if all_key_points:
-                sample_pts = [kp["point"][:40] for kp in all_key_points[:3]]
-                agenda_topics = [f"Topic: {p}..." for p in sample_pts]
+            agenda_topics = []
+            for kp in all_key_points:
+                cat = kp.get("category", "")
+                if cat and cat not in ["General", "Discussion Topic"] and cat not in agenda_topics:
+                    agenda_topics.append(cat)
+            if not agenda_topics:
+                agenda_topics = ["General Discussion"]
 
             return MeetingAnalysis(
                 executive_summary=executive_summary,
                 agenda_topics=agenda_topics,
-                key_points=[KeyPointExtraction(**kp) for kp in all_key_points[:20]],
-                decisions=[DecisionExtraction(**d) for d in all_decisions[:15]],
-                action_items=[ActionItemExtraction(**a) for a in all_action_items[:20]],
-                important_dates=[ImportantDateExtraction(**dt) for dt in all_dates[:10]],
-                scheduled_events=[ScheduledEventExtraction(**ev) for ev in all_events[:10]],
-                takeaways=[TakeawayExtraction(**tk) for tk in all_takeaways[:15]],
-                unresolved_questions=[UnresolvedQuestionExtraction(**q) for q in all_questions[:10]],
-                sentiment=SentimentReport(
-                    overall_sentiment_estimate="Constructive & Collaborative",
-                    justification="Productive discussion with clear action items and milestone alignment.",
-                    speaker_estimates=[
-                        SpeakerSentimentMetric(speaker_label=s, estimated_tone="Engaged", observation="Active participant in meeting discussion")
-                        for s in (speakers_list or ["Speaker 1"])
-                    ]
-                )
+                key_points=[KeyPointExtraction(**kp) for kp in all_key_points],
+                decisions=[DecisionExtraction(**d) for d in all_decisions],
+                action_items=[ActionItemExtraction(**a) for a in all_action_items],
+                important_dates=[ImportantDateExtraction(**dt) for dt in all_dates],
+                scheduled_events=[ScheduledEventExtraction(**ev) for ev in all_events],
+                takeaways=[TakeawayExtraction(**tk) for tk in all_takeaways],
+                unresolved_questions=[UnresolvedQuestionExtraction(**q) for q in all_questions],
+                sentiment=None
             )
             
         return result

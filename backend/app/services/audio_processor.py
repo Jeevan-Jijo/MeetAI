@@ -40,6 +40,34 @@ def get_audio_duration(file_path: str) -> float:
         logger.warning(f"Failed to get audio duration via ffprobe: {e}")
         return 0.0
 
+def has_video_stream(file_path: str) -> bool:
+    """Check if media file has an actual visual video stream (excluding audio and still cover art)."""
+    if not shutil.which("ffprobe") or not os.path.exists(file_path):
+        return False
+    cmd = [
+        "ffprobe",
+        "-v", "error",
+        "-select_streams", "v:0",
+        "-show_entries", "stream=codec_name:disposition=attached_pic",
+        "-of", "json",
+        file_path
+    ]
+    try:
+        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
+        data = json.loads(result.stdout)
+        streams = data.get("streams", [])
+        if not streams:
+            return False
+        # Ignore still image attachments (album art)
+        video_stream = streams[0]
+        disposition = video_stream.get("disposition", {})
+        if disposition.get("attached_pic") == 1:
+            return False
+        return True
+    except Exception as e:
+        logger.warning(f"Failed to check video stream via ffprobe: {e}")
+        return False
+
 def _execute_ffmpeg(cmd: list) -> Tuple[int, str, str]:
     """Run FFmpeg synchronously in a thread."""
     try:

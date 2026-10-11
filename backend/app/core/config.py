@@ -10,12 +10,14 @@ class Settings(BaseSettings):
     API_V1_STR: str = "/api/v1"
     ENVIRONMENT: str = "development"
     
-    # Base Directories
+    # Base Directories & Project-Local Storage (inside project backend/instance)
     BASE_DIR: Path = Path(__file__).resolve().parent.parent.parent
-    DATA_DIR: Path = BASE_DIR / "data"
-    UPLOAD_DIR: Path = BASE_DIR / "data" / "uploads"
-    PROCESSED_DIR: Path = BASE_DIR / "data" / "processed"
-    VECTOR_DIR: Path = BASE_DIR / "data" / "vectors"
+    MIS_DATA_DIR: Path = Path(os.getenv("MIS_DATA_DIR", str(BASE_DIR / "instance")))
+    DATA_DIR: Path = MIS_DATA_DIR
+    UPLOAD_DIR: Path = Path(os.getenv("UPLOAD_DIR", str(MIS_DATA_DIR / "uploads")))
+    PROCESSED_DIR: Path = Path(os.getenv("PROCESSED_DIR", str(MIS_DATA_DIR / "tmp")))
+    VECTOR_DIR: Path = Path(os.getenv("VECTOR_DIR", str(MIS_DATA_DIR / "vectors")))
+    EXPORTS_DIR: Path = Path(os.getenv("EXPORTS_DIR", str(MIS_DATA_DIR / "exports")))
     
     # CORS
     CORS_ORIGINS: List[str] = [
@@ -25,8 +27,8 @@ class Settings(BaseSettings):
         "http://127.0.0.1:8000"
     ]
     
-    # Database
-    DATABASE_URL: str = f"sqlite:///{BASE_DIR}/data/mis.db"
+    # Database (project-local in backend/instance/mis.db)
+    DATABASE_URL: str = os.getenv("DATABASE_URL", f"sqlite:///{MIS_DATA_DIR / 'mis.db'}")
     
     # Ollama Local LLM
     OLLAMA_BASE_URL: str = "http://localhost:11434"
@@ -36,7 +38,7 @@ class Settings(BaseSettings):
     OLLAMA_TIMEOUT_SECONDS: float = 180.0
     
     # faster-whisper Speech-to-Text
-    WHISPER_MODEL: str = "openai/whisper-large-v3-turbo"
+    WHISPER_MODEL: str = "base.en"
     WHISPER_FALLBACK_MODEL: str = "base.en"
     WHISPER_DEVICE: str = "auto"
     WHISPER_COMPUTE_TYPE: str = "float16"
@@ -63,3 +65,5 @@ os.makedirs(settings.DATA_DIR, exist_ok=True)
 os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
 os.makedirs(settings.PROCESSED_DIR, exist_ok=True)
 os.makedirs(settings.VECTOR_DIR, exist_ok=True)
+os.makedirs(settings.EXPORTS_DIR, exist_ok=True)
+

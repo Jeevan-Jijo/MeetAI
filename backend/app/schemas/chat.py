@@ -1,6 +1,6 @@
 import datetime
-from typing import List, Optional
-from pydantic import BaseModel, Field, ConfigDict
+from typing import List, Optional, Any
+from pydantic import BaseModel, Field, ConfigDict, model_validator
 
 class Citation(BaseModel):
     segment_id: Optional[int] = None
@@ -9,6 +9,16 @@ class Citation(BaseModel):
     timestamp_str: str
     speaker_label: str
     text: str
+
+    @model_validator(mode="before")
+    @classmethod
+    def handle_legacy_citation(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            # Compatibility with legacy citations that used "speaker" instead of "speaker_label"
+            if "speaker_label" not in data and "speaker" in data:
+                data = dict(data)
+                data["speaker_label"] = str(data["speaker"])
+        return data
 
 class ChatQueryRequest(BaseModel):
     meeting_id: int

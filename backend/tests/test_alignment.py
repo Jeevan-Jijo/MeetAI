@@ -38,3 +38,40 @@ def test_alignment_graceful_fallback_no_turns():
     assert aligned[0]["speaker_label"] == "Unknown Speaker"
     assert "SPEAKER_00" in stats
     assert stats["SPEAKER_00"]["speaking_percentage"] == 100.0
+
+def test_alignment_with_word_timestamps():
+    # Coarse segment contains words from two speakers
+    transcript_segments = [
+        {
+            "start": 0.0,
+            "end": 8.0,
+            "text": "Hello everyone. Thanks for having me.",
+            "words": [
+                {"word": " Hello", "start": 0.0, "end": 1.0, "probability": 0.99},
+                {"word": " everyone.", "start": 1.0, "end": 2.5, "probability": 0.98},
+                {"word": " Thanks", "start": 3.0, "end": 4.5, "probability": 0.97},
+                {"word": " for", "start": 4.5, "end": 5.0, "probability": 0.99},
+                {"word": " having", "start": 5.0, "end": 6.0, "probability": 0.95},
+                {"word": " me.", "start": 6.0, "end": 7.0, "probability": 0.96},
+            ]
+        }
+    ]
+
+    speaker_turns = [
+        {"start": 0.0, "end": 2.8, "speaker": "SPEAKER_00"},
+        {"start": 2.9, "end": 7.5, "speaker": "SPEAKER_01"},
+    ]
+
+    aligned, stats = align_transcript_with_speakers(transcript_segments, speaker_turns)
+
+    # Must cleanly split into 2 subsegments matching speaker turns
+    assert len(aligned) == 2
+    assert aligned[0]["speaker_tag"] == "SPEAKER_00"
+    assert aligned[0]["speaker_label"] == "Speaker 1"
+    assert "Hello everyone." in aligned[0]["text"]
+
+    assert aligned[1]["speaker_tag"] == "SPEAKER_01"
+    assert aligned[1]["speaker_label"] == "Speaker 2"
+    assert "Thanks for having me." in aligned[1]["text"]
+    assert stats["SPEAKER_00"]["turn_count"] == 1
+    assert stats["SPEAKER_01"]["turn_count"] == 1

@@ -1,273 +1,487 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import Link from 'next/link';
 import { 
-  FolderKanban, 
-  CheckSquare, 
-  Calendar, 
-  Gavel, 
-  Plus, 
   ArrowRight, 
-  Activity, 
+  Sparkles, 
+  ShieldCheck, 
+  Cpu, 
+  FileText, 
+  CheckCircle2, 
   Play, 
+  Bot, 
+  Download, 
   Clock, 
-  ShieldCheck,
-  Cpu,
-  Layers,
-  Sparkles
+  Users, 
+  Lock, 
+  Search, 
+  HardDrive,
+  Check,
+  ChevronRight,
+  HelpCircle,
+  FileSpreadsheet
 } from 'lucide-react';
-import { api } from '@/lib/api';
-import { MeetingListItem, ProcessingJob, SystemHealth } from '@/lib/types';
-import { formatSecondsToTime, getStatusBadgeColor } from '@/lib/utils';
 import { Button } from '@/components/ui/Button';
-import { Card } from '@/components/ui/Card';
-import { Badge } from '@/components/ui/Badge';
-import { ProgressBar } from '@/components/ui/ProgressBar';
 
-export default function DashboardPage() {
-  const [meetings, setMeetings] = useState<MeetingListItem[]>([]);
-  const [jobs, setJobs] = useState<ProcessingJob[]>([]);
-  const [health, setHealth] = useState<SystemHealth | null>(null);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
-
-  useEffect(() => {
-    loadDashboardData();
-    const interval = setInterval(loadDashboardData, 5000); // Polling for job updates
-    return () => clearInterval(interval);
-  }, []);
-
-  const loadDashboardData = async () => {
-    try {
-      const [meetingsData, jobsData, healthData] = await Promise.allSettled([
-        api.listMeetings(),
-        api.listJobs(),
-        api.getHealth(),
-      ]);
-
-      if (meetingsData.status === 'fulfilled') setMeetings(meetingsData.value);
-      if (jobsData.status === 'fulfilled') setJobs(jobsData.value);
-      if (healthData.status === 'fulfilled') setHealth(healthData.value);
-    } catch (err) {
-      console.error('Failed to load dashboard:', err);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const activeJobs = jobs.filter((j) => !['COMPLETED', 'FAILED'].includes(j.status));
-  const recentMeetings = meetings.slice(0, 5);
-
+export default function LandingPage() {
   return (
-    <div className="space-y-8 max-w-7xl mx-auto animate-fade-in">
-      {/* Top Banner / Welcome */}
-      <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 p-6 rounded-2xl bg-gradient-to-r from-teal-900/30 via-slate-900/40 to-slate-900/60 border border-teal-500/20 backdrop-blur-md shadow-sm">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2 text-teal-600 dark:text-teal-400 text-xs font-semibold tracking-wide uppercase">
-            <Sparkles className="w-4 h-4" /> Local Intelligence Dashboard
-          </div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white tracking-tight">
-            Meeting Intelligence System
-          </h1>
-          <p className="text-xs text-slate-500 dark:text-slate-400">
-            Secure, GPU-accelerated local transcription, diarization, extraction, and RAG.
-          </p>
-        </div>
-
-        <Link href="/meetings/new">
-          <Button variant="primary" size="md">
-            <Plus className="w-4 h-4" /> New Meeting
-          </Button>
-        </Link>
-      </div>
-
-      {/* Active Processing Banner if any */}
-      {activeJobs.length > 0 && (
-        <div className="p-5 rounded-2xl border border-teal-500/30 bg-teal-500/10 space-y-3 animate-pulse-fast">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-sm font-semibold text-teal-800 dark:text-teal-200">
-              <Activity className="w-4 h-4 text-teal-500 animate-spin" />
-              Active Local Processing Pipeline ({activeJobs.length} Job{activeJobs.length > 1 ? 's' : ''})
+    <div className="min-h-screen bg-[#FAF9F6] text-[#232529] selection:bg-[#D0DDD4]">
+      {/* Navigation Bar */}
+      <header className="sticky top-0 z-40 w-full border-b border-[#E5E4DE] bg-white/90 backdrop-blur-md">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+          <Link href="/" className="flex items-center gap-2.5 group">
+            <div className="w-8 h-8 rounded-lg bg-[#4E6B56] text-white flex items-center justify-center font-bold text-sm shadow-subtle group-hover:bg-[#415B49] transition">
+              M
             </div>
-            <span className="text-xs text-teal-600 dark:text-teal-400 font-medium">Auto-refreshing</span>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {activeJobs.map((job) => (
-              <div key={job.id} className="p-3 rounded-xl bg-white/80 dark:bg-slate-900/80 border border-teal-500/20 space-y-2">
-                <div className="flex justify-between items-center text-xs">
-                  <span className="font-semibold text-slate-800 dark:text-slate-200 truncate max-w-[200px]">
-                    {job.meeting_title || `Meeting #${job.meeting_id}`}
-                  </span>
-                  <span className="font-mono text-teal-600 dark:text-teal-400 font-bold">
-                    {job.progress_percent}%
-                  </span>
-                </div>
-                <ProgressBar progress={job.progress_percent} />
-                <p className="text-[11px] text-slate-500 truncate">
-                  Stage: <strong>{job.current_step}</strong>
-                </p>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Metric Stats Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card className="flex items-center gap-4">
-          <div className="w-12 h-12 rounded-xl bg-teal-500/10 border border-teal-500/20 flex items-center justify-center text-teal-600 dark:text-teal-400 shrink-0">
-            <FolderKanban className="w-6 h-6" />
-          </div>
-          <div>
-            <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">Total Meetings</p>
-            <p className="text-2xl font-bold text-slate-900 dark:text-slate-100">{meetings.length}</p>
-          </div>
-        </Card>
-
-        <Card className="flex items-center gap-4">
-          <div className="w-12 h-12 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-600 dark:text-indigo-400 shrink-0">
-            <CheckSquare className="w-6 h-6" />
-          </div>
-          <div>
-            <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">Action Items Tracked</p>
-            <p className="text-2xl font-bold text-slate-900 dark:text-slate-100">
-              {meetings.reduce((acc, m) => acc + (m.action_item_count || 0), 0)}
-            </p>
-          </div>
-        </Card>
-
-        <Card className="flex items-center gap-4">
-          <div className="w-12 h-12 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-600 dark:text-amber-400 shrink-0">
-            <Clock className="w-6 h-6" />
-          </div>
-          <div>
-            <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">Total Processed Audio</p>
-            <p className="text-2xl font-bold font-mono text-slate-900 dark:text-slate-100">
-              {formatSecondsToTime(meetings.reduce((acc, m) => acc + (m.duration_seconds || 0), 0))}
-            </p>
-          </div>
-        </Card>
-
-        <Card className="flex items-center gap-4">
-          <div className="w-12 h-12 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-600 dark:text-emerald-400 shrink-0">
-            <ShieldCheck className="w-6 h-6" />
-          </div>
-          <div>
-            <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">Inference Engine</p>
-            <p className="text-sm font-semibold text-emerald-600 dark:text-emerald-400 truncate">
-              {health?.whisper?.cuda_available ? 'CUDA Active' : 'Local CPU'}
-            </p>
-          </div>
-        </Card>
-      </div>
-
-      {/* Main Content Split: Recent Meetings & Quick Jump */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Recent Meetings Table/List */}
-        <div className="lg:col-span-2 space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-base font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-              <FolderKanban className="w-4 h-4 text-teal-500" /> Recent Meetings
-            </h2>
-            <Link href="/meetings" className="text-xs text-teal-600 dark:text-teal-400 hover:underline flex items-center gap-1 font-medium">
-              View All ({meetings.length}) <ArrowRight className="w-3.5 h-3.5" />
-            </Link>
-          </div>
-
-          <div className="space-y-3">
-            {recentMeetings.length === 0 ? (
-              <Card className="text-center py-12 space-y-3">
-                <FolderKanban className="w-10 h-10 mx-auto text-slate-400" />
-                <p className="text-sm font-medium text-slate-600 dark:text-slate-400">
-                  No meetings recorded yet.
-                </p>
-                <Link href="/meetings/new">
-                  <Button variant="primary" size="sm">
-                    <Plus className="w-4 h-4" /> Record or Upload First Meeting
-                  </Button>
-                </Link>
-              </Card>
-            ) : (
-              recentMeetings.map((m) => {
-                const badge = getStatusBadgeColor(m.status);
-                return (
-                  <Link key={m.id} href={`/meetings/${m.id}`}>
-                    <Card hover className="flex items-center justify-between gap-4 p-4">
-                      <div className="space-y-1 flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate">
-                            {m.title}
-                          </h3>
-                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium border ${badge.bg} ${badge.text}`}>
-                            <span className={`w-1.5 h-1.5 rounded-full ${badge.dot}`} />
-                            {m.status}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
-                          <span>{new Date(m.meeting_date).toLocaleDateString()}</span>
-                          <span>•</span>
-                          <span className="font-mono">{formatSecondsToTime(m.duration_seconds)}</span>
-                          <span>•</span>
-                          <span>{m.speaker_count} speaker{m.speaker_count === 1 ? '' : 's'}</span>
-                          <span>•</span>
-                          <span>{m.action_item_count} action item{m.action_item_count === 1 ? '' : 's'}</span>
-                        </div>
-                      </div>
-                      <ArrowRight className="w-4 h-4 text-slate-400 shrink-0" />
-                    </Card>
-                  </Link>
-                );
-              })
-            )}
-          </div>
-        </div>
-
-        {/* Right Info Column: Local System Health */}
-        <div className="space-y-4">
-          <h2 className="text-base font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-            <Cpu className="w-4 h-4 text-teal-500" /> Local System Health
-          </h2>
-
-          <Card className="space-y-4 p-5">
-            <div className="space-y-3 text-xs">
-              <div className="flex justify-between items-center pb-2 border-b border-slate-100 dark:border-slate-800">
-                <span className="text-slate-500">FFmpeg Normalizer:</span>
-                <span className={`font-semibold ${health?.ffmpeg?.available ? 'text-emerald-500' : 'text-rose-500'}`}>
-                  {health?.ffmpeg?.available ? 'Available' : 'Missing'}
-                </span>
-              </div>
-
-              <div className="flex justify-between items-center pb-2 border-b border-slate-100 dark:border-slate-800">
-                <span className="text-slate-500">faster-whisper STT:</span>
-                <span className="font-semibold text-slate-700 dark:text-slate-300">
-                  {health?.whisper?.device?.toUpperCase()} ({health?.whisper?.compute_type})
-                </span>
-              </div>
-
-              <div className="flex justify-between items-center pb-2 border-b border-slate-100 dark:border-slate-800">
-                <span className="text-slate-500">PyAnnote Diarization:</span>
-                <span className={`font-semibold ${health?.diarization?.is_ready ? 'text-emerald-500' : 'text-amber-500'}`}>
-                  {health?.diarization?.is_ready ? 'Ready' : 'Fallback Mode'}
-                </span>
-              </div>
-
-              <div className="flex justify-between items-center pb-2 border-b border-slate-100 dark:border-slate-800">
-                <span className="text-slate-500">Ollama LLM:</span>
-                <span className="font-semibold text-slate-700 dark:text-slate-300 truncate max-w-[120px]">
-                  {health?.ollama?.active_model || 'Connecting...'}
-                </span>
-              </div>
+            <div>
+              <span className="font-semibold text-sm text-[#18191B] tracking-tight block leading-tight">
+                MIS Intelligence
+              </span>
+              <span className="text-[10px] text-[#666870] font-medium tracking-wide">
+                Local-First Meeting System
+              </span>
             </div>
+          </Link>
 
-            <Link href="/settings" className="block pt-2">
-              <Button variant="outline" size="sm" className="w-full">
-                View Detailed Settings & HF Token
+          <nav className="hidden md:flex items-center gap-7 text-xs font-medium text-[#666870]">
+            <a href="#features" className="hover:text-[#18191B] transition">Features</a>
+            <a href="#preview" className="hover:text-[#18191B] transition">Product Preview</a>
+            <a href="#how-it-works" className="hover:text-[#18191B] transition">How It Works</a>
+            <a href="#architecture" className="hover:text-[#18191B] transition">Local Architecture</a>
+          </nav>
+
+          <div className="flex items-center gap-3">
+            <Link href="/dashboard" className="hidden sm:inline-block">
+              <Button variant="ghost" size="sm" className="text-xs text-[#484B52] hover:text-[#18191B]">
+                Dashboard
               </Button>
             </Link>
-          </Card>
+            <Link href="/meetings/new">
+              <Button variant="primary" size="sm" className="bg-[#4E6B56] hover:bg-[#415B49] text-white text-xs gap-1.5 shadow-subtle">
+                Analyze a Meeting
+                <ArrowRight className="w-3.5 h-3.5" />
+              </Button>
+            </Link>
+          </div>
         </div>
-      </div>
+      </header>
+
+      {/* Hero Section */}
+      <section className="relative pt-16 pb-20 md:pt-24 md:pb-28 overflow-hidden">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 text-center space-y-6">
+          {/* Trust Badge */}
+          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#EBF1EC] border border-[#D0DDD4] text-[#34483A] text-xs font-medium animate-fade-in shadow-subtle">
+            <ShieldCheck className="w-4 h-4 text-[#4E6B56]" />
+            <span>100% Local Intelligence • Zero Cloud APIs • RTX 4060 GPU Accelerated</span>
+          </div>
+
+          {/* Headline */}
+          <h1 className="text-3xl sm:text-5xl lg:text-6xl font-bold text-[#18191B] tracking-tight leading-[1.15] max-w-4xl mx-auto">
+            Transform meeting audio into verifiable decisions, action items, and minutes.
+          </h1>
+
+          {/* Subheadline */}
+          <p className="text-base sm:text-lg text-[#555760] max-w-2xl mx-auto font-normal leading-relaxed">
+            A local-first system that transcribes recordings, identifies discussion points, audits decisions against spoken evidence, and provides an isolated AI chatbot without inventing owners or deadlines.
+          </p>
+
+          {/* Primary Action Buttons */}
+          <div className="pt-4 flex flex-col sm:flex-row items-center justify-center gap-3">
+            <Link href="/meetings/new" className="w-full sm:w-auto">
+              <Button size="lg" className="w-full sm:w-auto bg-[#4E6B56] hover:bg-[#415B49] text-white px-7 py-3 text-sm font-semibold rounded-xl shadow-card gap-2">
+                Analyze a Meeting
+                <ArrowRight className="w-4 h-4" />
+              </Button>
+            </Link>
+            <a href="#features" className="w-full sm:w-auto">
+              <Button variant="secondary" size="lg" className="w-full sm:w-auto border border-[#E5E4DE] bg-white hover:bg-[#F5F4EE] text-[#232529] px-7 py-3 text-sm font-semibold rounded-xl shadow-subtle">
+                Explore Features
+              </Button>
+            </a>
+          </div>
+
+          {/* Quick Specs Pill Bar */}
+          <div className="pt-8 flex flex-wrap items-center justify-center gap-6 text-xs text-[#666870]">
+            <div className="flex items-center gap-1.5">
+              <Check className="w-4 h-4 text-[#4E6B56]" />
+              <span>English-only speech focus</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <Check className="w-4 h-4 text-[#4E6B56]" />
+              <span>Grounded evidence verification</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <Check className="w-4 h-4 text-[#4E6B56]" />
+              <span>Markdown, JSON & PDF MoM</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Illustrative Product Preview Section */}
+      <section id="preview" className="pb-24 max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="rounded-2xl border border-[#E5E4DE] bg-white shadow-card overflow-hidden">
+          {/* Mockup Titlebar */}
+          <div className="px-5 py-3.5 border-b border-[#E5E4DE] bg-[#FAF9F6] flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="flex gap-1.5">
+                <div className="w-2.5 h-2.5 rounded-full bg-[#E5E4DE]" />
+                <div className="w-2.5 h-2.5 rounded-full bg-[#E5E4DE]" />
+                <div className="w-2.5 h-2.5 rounded-full bg-[#E5E4DE]" />
+              </div>
+              <span className="text-xs text-[#666870] font-medium pl-2">
+                Weekly Student Success Meeting — Local Intelligence Dashboard
+              </span>
+            </div>
+            <span className="text-[11px] font-medium text-[#4E6B56] bg-[#EBF1EC] px-2.5 py-0.5 rounded-full border border-[#D0DDD4]">
+              Illustrative Preview
+            </span>
+          </div>
+
+          {/* Mockup Content Grid */}
+          <div className="p-6 lg:p-8 space-y-6 bg-white">
+            {/* Top Row: Executive Summary & Audio Player Mock */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <div className="lg:col-span-2 p-5 rounded-xl border border-[#E5E4DE] bg-[#FBFBF9] space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-[#18191B] uppercase tracking-wider flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-[#4E6B56]" /> Executive Summary
+                  </span>
+                  <span className="text-[11px] text-[#4E6B56] font-medium bg-[#EBF1EC] px-2 py-0.5 rounded">
+                    Neutral Tone
+                  </span>
+                </div>
+                <p className="text-xs text-[#484B52] leading-relaxed">
+                  The team discussed chronic student absenteeism on Fridays and explored proactive initiatives including a Friday pancake breakfast. The group also reviewed academic assistance for students with family caregiving commitments.
+                </p>
+                <div className="pt-2 flex flex-wrap gap-2 text-[11px]">
+                  <span className="px-2 py-0.5 rounded bg-white border border-[#E5E4DE] text-[#666870]">
+                    Agenda: Friday Attendance
+                  </span>
+                  <span className="px-2 py-0.5 rounded bg-white border border-[#E5E4DE] text-[#666870]">
+                    Agenda: Community Support Resources
+                  </span>
+                </div>
+              </div>
+
+              {/* Audio Player & Quick Export Preview */}
+              <div className="p-5 rounded-xl border border-[#E5E4DE] bg-[#FBFBF9] flex flex-col justify-between space-y-4">
+                <div>
+                  <span className="text-xs font-semibold text-[#18191B] block mb-2">
+                    Audio & Synchronized Playback
+                  </span>
+                  <div className="flex items-center gap-3 p-2.5 rounded-lg bg-white border border-[#E5E4DE]">
+                    <div className="w-8 h-8 rounded-full bg-[#4E6B56] text-white flex items-center justify-center shrink-0">
+                      <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="h-1.5 w-full bg-[#E5E4DE] rounded-full overflow-hidden">
+                        <div className="h-full bg-[#4E6B56] w-1/4 rounded-full" />
+                      </div>
+                      <div className="flex justify-between text-[10px] text-[#666870] mt-1 font-mono">
+                        <span>00:24</span>
+                        <span>01:38</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="pt-2 border-t border-[#E5E4DE] space-y-1.5">
+                  <span className="text-[11px] font-medium text-[#666870] block">Export Formal Minutes:</span>
+                  <div className="flex gap-2">
+                    <span className="text-[10px] font-semibold px-2 py-1 rounded bg-white border border-[#E5E4DE] text-[#232529]">
+                      Markdown
+                    </span>
+                    <span className="text-[10px] font-semibold px-2 py-1 rounded bg-white border border-[#E5E4DE] text-[#232529]">
+                      JSON
+                    </span>
+                    <span className="text-[10px] font-semibold px-2 py-1 rounded bg-white border border-[#E5E4DE] text-[#232529]">
+                      PDF
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Bottom Row: Verifiable Decisions & Action Items with Strict Grounding */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Grounded Decision Card */}
+              <div className="p-5 rounded-xl border border-[#E5E4DE] bg-white space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-[#18191B] flex items-center gap-1.5">
+                    <CheckCircle2 className="w-4 h-4 text-[#4E6B56]" />
+                    Audited Decisions
+                  </span>
+                  <span className="text-[10px] font-semibold uppercase px-2 py-0.5 rounded bg-[#EBF1EC] text-[#34483A]">
+                    Evidence Verified
+                  </span>
+                </div>
+                <div className="p-3 rounded-lg bg-[#FAF9F6] border border-[#E5E4DE] space-y-1.5 text-xs">
+                  <p className="font-medium text-[#18191B]">
+                    Try a pancake breakfast initiative to incentivize Friday student attendance.
+                  </p>
+                  <p className="text-[11px] text-[#666870] italic">
+                    Evidence [00:00:21 - 00:00:26]: &ldquo;It might be good if we did something like a pancake breakfast to encourage them to come.&rdquo;
+                  </p>
+                </div>
+              </div>
+
+              {/* Action Item Card with Honest Owner Distinction */}
+              <div className="p-5 rounded-xl border border-[#E5E4DE] bg-white space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-[#18191B] flex items-center gap-1.5">
+                    <Clock className="w-4 h-4 text-[#4E6B56]" />
+                    Action Items (Zero Fabrication)
+                  </span>
+                  <span className="text-[10px] font-semibold uppercase px-2 py-0.5 rounded bg-[#F5F4EE] text-[#484B52]">
+                    1 Pending
+                  </span>
+                </div>
+                <div className="p-3 rounded-lg bg-[#FAF9F6] border border-[#E5E4DE] space-y-2 text-xs">
+                  <p className="font-medium text-[#18191B]">
+                    Research community support resources to share with students facing childcare needs.
+                  </p>
+                  <div className="flex items-center gap-2 text-[11px]">
+                    <span className="px-2 py-0.5 rounded bg-white border border-[#E5E4DE] text-[#666870]">
+                      Owner: <strong className="text-[#8C8E96] font-normal">Unassigned</strong> (Not spoken)
+                    </span>
+                    <span className="px-2 py-0.5 rounded bg-white border border-[#E5E4DE] text-[#666870]">
+                      Deadline: <strong className="text-[#8C8E96] font-normal">None stated</strong>
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Feature Deep Dive Section */}
+      <section id="features" className="py-20 border-t border-[#E5E4DE] bg-white">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 space-y-12">
+          <div className="text-center max-w-2xl mx-auto space-y-3">
+            <span className="text-xs font-semibold text-[#4E6B56] uppercase tracking-wider">
+              System Capabilities
+            </span>
+            <h2 className="text-2xl sm:text-3xl font-bold text-[#18191B] tracking-tight">
+              Engineered for precision and transparent meeting intelligence.
+            </h2>
+            <p className="text-sm text-[#666870]">
+              Every output links back to verified timestamps in the spoken recording.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {/* Feature 1 */}
+            <div className="p-6 rounded-2xl border border-[#E5E4DE] bg-[#FAF9F6] space-y-3">
+              <div className="w-9 h-9 rounded-xl bg-[#EBF1EC] text-[#4E6B56] flex items-center justify-center">
+                <Cpu className="w-4 h-4" />
+              </div>
+              <h3 className="text-sm font-semibold text-[#18191B]">
+                GPU-Accelerated Transcription
+              </h3>
+              <p className="text-xs text-[#666870] leading-relaxed">
+                Uses faster-whisper with float16 compute on your local NVIDIA RTX 4060. Delivers word-level timestamps in seconds without cloud latency.
+              </p>
+            </div>
+
+            {/* Feature 2 */}
+            <div className="p-6 rounded-2xl border border-[#E5E4DE] bg-[#FAF9F6] space-y-3">
+              <div className="w-9 h-9 rounded-xl bg-[#EBF1EC] text-[#4E6B56] flex items-center justify-center">
+                <Users className="w-4 h-4" />
+              </div>
+              <h3 className="text-sm font-semibold text-[#18191B]">
+                Transparent Speaker Attribution
+              </h3>
+              <p className="text-xs text-[#666870] leading-relaxed">
+                Distinguishes detected speakers and reports honest fallback status. If model authorization fails, it labels Unknown Speaker without fabricating identities.
+              </p>
+            </div>
+
+            {/* Feature 3 */}
+            <div className="p-6 rounded-2xl border border-[#E5E4DE] bg-[#FAF9F6] space-y-3">
+              <div className="w-9 h-9 rounded-xl bg-[#EBF1EC] text-[#4E6B56] flex items-center justify-center">
+                <CheckCircle2 className="w-4 h-4" />
+              </div>
+              <h3 className="text-sm font-semibold text-[#18191B]">
+                Grounded Extraction & Auditing
+              </h3>
+              <p className="text-xs text-[#666870] leading-relaxed">
+                Decisions and action items are verified against canonical transcript segments. Claims without direct textual entailment are rejected.
+              </p>
+            </div>
+
+            {/* Feature 4 */}
+            <div className="p-6 rounded-2xl border border-[#E5E4DE] bg-[#FAF9F6] space-y-3">
+              <div className="w-9 h-9 rounded-xl bg-[#EBF1EC] text-[#4E6B56] flex items-center justify-center">
+                <Search className="w-4 h-4" />
+              </div>
+              <h3 className="text-sm font-semibold text-[#18191B]">
+                Searchable Meeting Archive
+              </h3>
+              <p className="text-xs text-[#666870] leading-relaxed">
+                Filter by processing state, search transcript keywords across historical sessions, and keep records stored safely in an external data directory.
+              </p>
+            </div>
+
+            {/* Feature 5 */}
+            <div className="p-6 rounded-2xl border border-[#E5E4DE] bg-[#FAF9F6] space-y-3">
+              <div className="w-9 h-9 rounded-xl bg-[#EBF1EC] text-[#4E6B56] flex items-center justify-center">
+                <Bot className="w-4 h-4" />
+              </div>
+              <h3 className="text-sm font-semibold text-[#18191B]">
+                Meeting-Scoped AI Chatbot
+              </h3>
+              <p className="text-xs text-[#666870] leading-relaxed">
+                Floating assistant scoped strictly to the selected meeting. Cites fine-grained 4-second spans with speaker tags, and clearly abstains on absent information.
+              </p>
+            </div>
+
+            {/* Feature 6 */}
+            <div className="p-6 rounded-2xl border border-[#E5E4DE] bg-[#FAF9F6] space-y-3">
+              <div className="w-9 h-9 rounded-xl bg-[#EBF1EC] text-[#4E6B56] flex items-center justify-center">
+                <FileText className="w-4 h-4" />
+              </div>
+              <h3 className="text-sm font-semibold text-[#18191B]">
+                Formal Minutes of Meeting (MoM)
+              </h3>
+              <p className="text-xs text-[#666870] leading-relaxed">
+                Assembles professional, formatted MoM documents with executive summary, discussion topics, and action registers. Export to Markdown, JSON, or PDF.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* How It Works Section */}
+      <section id="how-it-works" className="py-20 border-t border-[#E5E4DE] bg-[#FAF9F6]">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 space-y-12">
+          <div className="text-center max-w-2xl mx-auto space-y-3">
+            <span className="text-xs font-semibold text-[#4E6B56] uppercase tracking-wider">
+              Simple Workflow
+            </span>
+            <h2 className="text-2xl sm:text-3xl font-bold text-[#18191B] tracking-tight">
+              From raw audio to verified minutes in three steps.
+            </h2>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+            <div className="space-y-3">
+              <div className="w-8 h-8 rounded-lg bg-[#18191B] text-white flex items-center justify-center font-bold text-xs">
+                1
+              </div>
+              <h3 className="text-sm font-semibold text-[#18191B]">
+                Upload or Record
+              </h3>
+              <p className="text-xs text-[#666870] leading-relaxed">
+                Drag and drop MP3, MP4, WAV, M4A, WebM, or FLAC files up to 500MB, or record directly using the browser microphone.
+              </p>
+            </div>
+
+            <div className="space-y-3">
+              <div className="w-8 h-8 rounded-lg bg-[#4E6B56] text-white flex items-center justify-center font-bold text-xs">
+                2
+              </div>
+              <h3 className="text-sm font-semibold text-[#18191B]">
+                Local GPU Processing
+              </h3>
+              <p className="text-xs text-[#666870] leading-relaxed">
+                The background worker normalizes audio, transcribes segments with Whisper, extracts structured insights with Ollama, and indexes vector embeddings.
+              </p>
+            </div>
+
+            <div className="space-y-3">
+              <div className="w-8 h-8 rounded-lg bg-[#18191B] text-white flex items-center justify-center font-bold text-xs">
+                3
+              </div>
+              <h3 className="text-sm font-semibold text-[#18191B]">
+                Review, Query & Export
+              </h3>
+              <p className="text-xs text-[#666870] leading-relaxed">
+                Inspect transcript segments synchronized to audio, chat with the evidence-grounded chatbot, and download formal Minutes of Meeting.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Local Architecture & Data Safety Section */}
+      <section id="architecture" className="py-20 border-t border-[#E5E4DE] bg-white">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8">
+          <div className="text-center space-y-3">
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#EBF1EC] text-[#34483A] text-xs font-medium">
+              <HardDrive className="w-3.5 h-3.5 text-[#4E6B56]" />
+              External Storage Architecture
+            </div>
+            <h2 className="text-2xl sm:text-3xl font-bold text-[#18191B] tracking-tight">
+              Zero repository clutter. 100% workstation privacy.
+            </h2>
+            <p className="text-xs sm:text-sm text-[#666870] max-w-xl mx-auto leading-relaxed">
+              All recordings, intermediate files, databases, and vector indexes are stored in a centralized, Git-ignored runtime directory (<code className="font-mono text-[#18191B]">backend/instance/</code>).
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+            <div className="p-4 rounded-xl border border-[#E5E4DE] bg-[#FAF9F6] space-y-1">
+              <span className="font-semibold text-[#18191B] block">Clean Source Repository</span>
+              <p className="text-[#666870]">
+                Zero temporary WAV files or database artifacts stored in source control.
+              </p>
+            </div>
+            <div className="p-4 rounded-xl border border-[#E5E4DE] bg-[#FAF9F6] space-y-1">
+              <span className="font-semibold text-[#18191B] block">Local LLM Reasoning</span>
+              <p className="text-[#666870]">
+                Powered by Ollama with local open-weights models. No meeting transcripts leave your machine.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* CTA Banner */}
+      <section className="py-16 bg-[#F4F7F5] border-t border-[#E5E4DE]">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center space-y-5">
+          <h2 className="text-2xl sm:text-3xl font-bold text-[#18191B] tracking-tight">
+            Ready to analyze your next meeting?
+          </h2>
+          <p className="text-xs sm:text-sm text-[#555760] max-w-lg mx-auto">
+            Upload an audio or video file to generate timestamped transcripts, grounded action items, and complete minutes.
+          </p>
+          <div className="pt-2">
+            <Link href="/meetings/new">
+              <Button size="lg" className="bg-[#4E6B56] hover:bg-[#415B49] text-white px-8 py-3 text-sm font-semibold rounded-xl shadow-card gap-2">
+                Analyze a Meeting
+                <ArrowRight className="w-4 h-4" />
+              </Button>
+            </Link>
+          </div>
+        </div>
+      </section>
+
+      {/* Professional Footer */}
+      <footer className="border-t border-[#E5E4DE] bg-white py-10 text-xs text-[#8C8E96]">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-2">
+            <div className="w-5 h-5 rounded bg-[#4E6B56] text-white flex items-center justify-center font-bold text-[10px]">
+              M
+            </div>
+            <span className="font-semibold text-[#18191B]">Meeting Intelligence System</span>
+            <span>— 100% Local-First SaaS</span>
+          </div>
+
+          <div className="flex items-center gap-6 text-[#666870]">
+            <Link href="/dashboard" className="hover:text-[#18191B] transition">Dashboard</Link>
+            <Link href="/meetings" className="hover:text-[#18191B] transition">Meetings</Link>
+            <Link href="/meetings/new" className="hover:text-[#18191B] transition">Analyze</Link>
+            <Link href="/settings" className="hover:text-[#18191B] transition">System Health</Link>
+          </div>
+
+          <div>
+            <span>English speech transcription • Local inference</span>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }

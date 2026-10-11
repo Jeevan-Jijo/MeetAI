@@ -53,6 +53,8 @@ backend/data/
 *.faiss
 *.pkl
 models_cache/
+instance/
+backend/instance/
 
 # Audio / Media files uploaded
 *.wav

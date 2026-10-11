@@ -12,12 +12,12 @@ export const Badge: React.FC<BadgeProps> = ({
   ...props
 }) => {
   const variantStyles = {
-    default: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border-slate-200 dark:border-slate-700',
-    success: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/50',
-    warning: 'bg-amber-50 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300 border-amber-200 dark:border-amber-800/50',
-    danger: 'bg-red-50 text-red-700 dark:bg-red-950/50 dark:text-red-300 border-red-200 dark:border-red-800/50',
-    info: 'bg-cyan-50 text-cyan-700 dark:bg-cyan-950/50 dark:text-cyan-300 border-cyan-200 dark:border-cyan-800/50',
-    purple: 'bg-purple-50 text-purple-700 dark:bg-purple-950/50 dark:text-purple-300 border-purple-200 dark:border-purple-800/50',
+    default: 'bg-[#F5F4EE] text-[#484B52] border-[#E5E4DE]',
+    success: 'bg-[#EBF1EC] text-[#34483A] border-[#D0DDD4]',
+    warning: 'bg-[#FAF4EB] text-[#5C4524] border-[#E8DDCC]',
+    danger: 'bg-rose-50 text-rose-700 border-rose-200',
+    info: 'bg-[#EEF2F6] text-[#2C4258] border-[#D4DFE8]',
+    purple: 'bg-[#F5EFF7] text-[#4F3356] border-[#DFD3E3]',
   };
 
   return (

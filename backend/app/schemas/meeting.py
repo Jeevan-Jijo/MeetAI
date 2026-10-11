@@ -46,6 +46,7 @@ class RecordingRead(BaseModel):
     file_size_bytes: int
     duration_seconds: float
     mime_type: Optional[str] = None
+    is_video: bool = False
     created_at: datetime.datetime
 
 

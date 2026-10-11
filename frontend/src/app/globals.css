@@ -4,27 +4,17 @@
 
 @layer base {
   :root {
-    --background: 210 40% 98%;
-    --foreground: 222.2 84% 4.9%;
+    --background: 40 20% 98%;
+    --foreground: 220 7% 10%;
     --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
-    --primary: 173 80% 40%;
-    --primary-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-  }
-
-  .dark {
-    --background: 222 47% 7%;
-    --foreground: 210 40% 98%;
-    --card: 217 33% 12%;
-    --card-foreground: 210 40% 98%;
-    --primary: 173 80% 45%;
-    --primary-foreground: 222 47% 7%;
-    --border: 217 33% 20%;
+    --card-foreground: 220 7% 10%;
+    --primary: 135 16% 36%;
+    --primary-foreground: 40 20% 98%;
+    --border: 45 10% 89%;
   }
 
   body {
-    @apply bg-slate-50 text-slate-900 dark:bg-[#0B0F17] dark:text-slate-100 min-h-screen font-sans antialiased selection:bg-brand-500/30;
+    @apply bg-[#FAF9F6] text-[#232529] min-h-screen font-sans antialiased selection:bg-[#D0DDD4];
   }
 }
 
@@ -39,18 +29,6 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  @apply bg-slate-300 dark:bg-slate-700 rounded-full hover:bg-slate-400 dark:hover:bg-slate-600;
+  @apply bg-[#D8D7CF] rounded-full hover:bg-[#B4B6BE];
 }
 
-/* Glassmorphism */
-.glass {
-  background: rgba(17, 24, 39, 0.7);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-}
-
-.glass-light {
-  background: rgba(255, 255, 255, 0.85);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-}

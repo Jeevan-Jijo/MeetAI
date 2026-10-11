@@ -2,12 +2,11 @@
 
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Mic, UploadCloud, ArrowLeft, Activity, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Mic, UploadCloud, ArrowLeft, Loader2, AlertCircle, ShieldCheck } from 'lucide-react';
 import Link from 'next/link';
 import { FileUploader } from '@/components/meetings/FileUploader';
 import { AudioRecorder } from '@/components/meetings/AudioRecorder';
 import { api } from '@/lib/api';
-import { ProgressBar } from '@/components/ui/ProgressBar';
 
 export default function NewMeetingPage() {
   const router = useRouter();
@@ -33,7 +32,7 @@ export default function NewMeetingPage() {
         step: 'Initializing pipeline...',
       });
 
-      // Poll job progress or redirect to meeting view immediately
+      // Poll job progress or redirect to meeting view
       pollJobAndRedirect(res.job_id, res.meeting_id);
     } catch (err: any) {
       setError(err.message || 'Upload failed');
@@ -61,7 +60,6 @@ export default function NewMeetingPage() {
           setIsSubmitting(false);
         }
       } catch (err) {
-        // If error, redirect directly to meeting page where user can see status
         clearInterval(interval);
         router.push(`/meetings/${meetingId}`);
       }
@@ -71,23 +69,23 @@ export default function NewMeetingPage() {
   return (
     <div className="max-w-3xl mx-auto space-y-6 animate-fade-in">
       {/* Top Breadcrumb */}
-      <div className="flex items-center gap-2 text-xs text-slate-500">
-        <Link href="/meetings" className="hover:text-teal-500 transition flex items-center gap-1">
+      <div className="flex items-center gap-2 text-xs text-[#8C8E96]">
+        <Link href="/meetings" className="hover:text-[#18191B] transition flex items-center gap-1">
           <ArrowLeft className="w-3.5 h-3.5" /> Back to Meetings
         </Link>
       </div>
 
-      <div className="space-y-1">
-        <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 tracking-tight">
-          Create New Meeting
+      <div className="space-y-1 pb-2 border-b border-[#E5E4DE]">
+        <h1 className="text-xl sm:text-2xl font-bold text-[#18191B] tracking-tight">
+          Analyze New Meeting
         </h1>
-        <p className="text-xs text-slate-500 dark:text-slate-400">
-          Upload an audio/video recording or record directly through your browser microphone.
+        <p className="text-xs sm:text-sm text-[#666870]">
+          Upload an audio or video file or record directly through your browser microphone.
         </p>
       </div>
 
       {error && (
-        <div className="p-4 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/60 text-xs text-rose-600 dark:text-rose-400 flex items-center gap-2">
+        <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-700 flex items-center gap-2">
           <AlertCircle className="w-4 h-4 shrink-0" />
           <span>{error}</span>
         </div>
@@ -95,63 +93,71 @@ export default function NewMeetingPage() {
 
       {/* Mode Tabs */}
       {!isSubmitting && (
-        <div className="flex rounded-xl p-1 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+        <div className="flex rounded-xl p-1 bg-[#F5F4EE] border border-[#E5E4DE]">
           <button
+            type="button"
             onClick={() => setActiveTab('upload')}
-            className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-semibold transition-all ${
+            className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-semibold transition ${
               activeTab === 'upload'
-                ? 'bg-white dark:bg-slate-800 text-teal-600 dark:text-teal-400 shadow-xs'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                ? 'bg-white text-[#34483A] shadow-subtle'
+                : 'text-[#666870] hover:text-[#18191B]'
             }`}
           >
-            <UploadCloud className="w-4 h-4" /> Upload Recording
+            <UploadCloud className="w-4 h-4 text-[#4E6B56]" /> Upload Recording File
           </button>
           <button
+            type="button"
             onClick={() => setActiveTab('record')}
-            className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-semibold transition-all ${
+            className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-semibold transition ${
               activeTab === 'record'
-                ? 'bg-white dark:bg-slate-800 text-teal-600 dark:text-teal-400 shadow-xs'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                ? 'bg-white text-[#34483A] shadow-subtle'
+                : 'text-[#666870] hover:text-[#18191B]'
             }`}
           >
-            <Mic className="w-4 h-4" /> Record Browser Mic
+            <Mic className="w-4 h-4 text-[#4E6B56]" /> Record Browser Mic
           </button>
         </div>
       )}
 
       {/* Processing Live Overlay */}
       {isSubmitting && currentJob && (
-        <div className="p-8 rounded-2xl border border-teal-500/30 bg-white dark:bg-slate-900 text-center space-y-6 animate-fade-in shadow-xl">
-          <div className="w-16 h-16 mx-auto rounded-full bg-teal-500/10 border border-teal-500/30 flex items-center justify-center text-teal-500 animate-spin">
-            <Activity className="w-8 h-8" />
+        <div className="p-8 rounded-2xl border border-[#D0DDD4] bg-white text-center space-y-6 animate-fade-in shadow-card">
+          <div className="w-14 h-14 mx-auto rounded-full bg-[#EBF1EC] border border-[#D0DDD4] flex items-center justify-center text-[#4E6B56]">
+            <Loader2 className="w-7 h-7 animate-spin" />
           </div>
 
           <div className="space-y-1">
-            <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100">
+            <h3 className="text-base font-bold text-[#18191B]">
               Processing Meeting on Local AI Pipeline
             </h3>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              Executing faster-whisper STT, pyannote diarization, and Ollama Qwen3 extraction.
+            <p className="text-xs text-[#666870]">
+              Executing faster-whisper speech transcription, diarization alignment, and grounded structured reasoning.
             </p>
           </div>
 
           <div className="max-w-md mx-auto space-y-2">
-            <ProgressBar
-              progress={currentJob.progress}
-              label={currentJob.step}
-              sublabel={`${currentJob.progress}%`}
-            />
+            <div className="flex justify-between text-xs font-medium text-[#18191B]">
+              <span>{currentJob.step}</span>
+              <span className="font-mono text-[#4E6B56]">{Math.round(currentJob.progress)}%</span>
+            </div>
+            <div className="h-2 bg-[#F5F4EE] border border-[#E5E4DE] rounded-full overflow-hidden">
+              <div 
+                className="h-full bg-[#4E6B56] transition-all duration-300"
+                style={{ width: `${Math.max(5, currentJob.progress)}%` }}
+              />
+            </div>
           </div>
 
-          <p className="text-[11px] text-slate-400 italic">
-            All AI computation is running securely on your local GPU/CPU. No cloud data transfer.
-          </p>
+          <div className="p-3 rounded-xl bg-[#FAF9F6] border border-[#E5E4DE] max-w-sm mx-auto flex items-center justify-center gap-2 text-[11px] text-[#666870]">
+            <ShieldCheck className="w-4 h-4 text-[#4E6B56]" />
+            <span>100% Offline execution • Saved locally to backend/instance</span>
+          </div>
         </div>
       )}
 
       {/* Main Tab Content */}
       {!isSubmitting && (
-        <div className="pt-2">
+        <div className="p-6 rounded-2xl border border-[#E5E4DE] bg-white shadow-subtle">
           {activeTab === 'upload' ? (
             <FileUploader onUploadSubmit={handleUploadSubmit} isSubmitting={isSubmitting} />
           ) : (

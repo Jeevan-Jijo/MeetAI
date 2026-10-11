@@ -2,7 +2,7 @@ import os
 import uuid
 import datetime
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query, BackgroundTasks, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, desc
 
@@ -147,6 +147,14 @@ def get_meeting_detail(meeting_id: int, db: Session = Depends(get_db)):
     return meeting
 
 
+@router.get("/{meeting_id}/recording")
+def get_meeting_recording(meeting_id: int, request: Request, db: Session = Depends(get_db)):
+    """Stream original meeting recording file with HTTP Range support."""
+    from app.api.audio import stream_meeting_audio
+    return stream_meeting_audio(meeting_id=meeting_id, request=request, db=db)
+
+
+
 @router.patch("/{meeting_id}", response_model=MeetingDetail)
 def update_meeting(meeting_id: int, update_data: MeetingUpdate, db: Session = Depends(get_db)):
     """Update meeting title, description, or date."""
@@ -182,6 +190,15 @@ def delete_meeting(meeting_id: int, db: Session = Depends(get_db)):
                 os.remove(meeting.recording.normalized_path)
         except Exception as e:
             logger.warning(f"Error removing files for meeting {meeting_id}: {e}")
+
+    # Clean isolated vector store index
+    try:
+        import shutil
+        meeting_vector_dir = settings.VECTOR_DIR / f"meeting_{meeting_id}"
+        if meeting_vector_dir.exists():
+            shutil.rmtree(meeting_vector_dir, ignore_errors=True)
+    except Exception as e:
+        logger.warning(f"Error removing vector store for meeting {meeting_id}: {e}")
 
     db.delete(meeting)
     db.commit()

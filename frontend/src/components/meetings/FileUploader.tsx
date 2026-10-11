@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useRef } from 'react';
-import { UploadCloud, FileAudio, FileVideo, X, ArrowRight, CheckCircle2, AlertCircle } from 'lucide-react';
+import { UploadCloud, FileAudio, FileVideo, X, ArrowRight, AlertCircle, ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { formatFileSize } from '@/lib/utils';
 
@@ -28,7 +28,7 @@ export const FileUploader: React.FC<FileUploaderProps> = ({
     setError(null);
     const ext = '.' + file.name.split('.').pop()?.toLowerCase();
     if (!SUPPORTED_EXTS.includes(ext)) {
-      setError(`Unsupported format "${ext}". Please upload: ${SUPPORTED_EXTS.join(', ')}`);
+      setError(`Unsupported format "${ext}". Supported formats: ${SUPPORTED_EXTS.join(', ')}`);
       return;
     }
     if (file.size > 500 * 1024 * 1024) {
@@ -70,15 +70,24 @@ export const FileUploader: React.FC<FileUploaderProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return; // Prevent duplicate submission
     if (!selectedFile) {
       setError('Please select an audio or video recording file.');
       return;
     }
-    onUploadSubmit(selectedFile, title || selectedFile.name, description);
+    onUploadSubmit(selectedFile, title.trim() || selectedFile.name, description.trim() || undefined);
   };
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
+      {/* English-Only Limitation Banner */}
+      <div className="p-3.5 rounded-xl border border-[#D0DDD4] bg-[#F4F7F5] flex items-center gap-2.5 text-xs text-[#34483A]">
+        <ShieldCheck className="w-4 h-4 text-[#4E6B56] shrink-0" />
+        <div>
+          <span className="font-semibold">English-Only Transcription:</span> MIS is calibrated for English speech models. Recordings in other languages are not supported.
+        </div>
+      </div>
+
       {/* Drop Area */}
       {!selectedFile ? (
         <div
@@ -89,8 +98,8 @@ export const FileUploader: React.FC<FileUploaderProps> = ({
           onClick={() => fileInputRef.current?.click()}
           className={`relative border-2 border-dashed rounded-2xl p-10 text-center cursor-pointer transition-all ${
             dragActive
-              ? 'border-teal-500 bg-teal-500/10'
-              : 'border-slate-300 dark:border-slate-700 hover:border-teal-500/60 dark:hover:border-teal-500/60 bg-white dark:bg-slate-900/40'
+              ? 'border-[#4E6B56] bg-[#EBF1EC]'
+              : 'border-[#D8D7CF] hover:border-[#4E6B56] bg-white'
           }`}
         >
           <input
@@ -101,22 +110,22 @@ export const FileUploader: React.FC<FileUploaderProps> = ({
             className="hidden"
           />
 
-          <div className="w-16 h-16 mx-auto rounded-full bg-teal-500/10 border border-teal-500/30 flex items-center justify-center text-teal-600 dark:text-teal-400 mb-4">
-            <UploadCloud className="w-8 h-8" />
+          <div className="w-14 h-14 mx-auto rounded-full bg-[#EBF1EC] border border-[#D0DDD4] flex items-center justify-center text-[#4E6B56] mb-3">
+            <UploadCloud className="w-7 h-7" />
           </div>
 
-          <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
+          <h3 className="text-sm font-semibold text-[#18191B]">
             Click to upload or drag & drop meeting recording
           </h3>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            Supports audio and video files up to 500 MB
+          <p className="text-xs text-[#666870] mt-1">
+            Supports MP3, MP4, WAV, M4A, WebM, FLAC, OGG, MKV up to 500 MB
           </p>
 
           <div className="mt-4 flex flex-wrap justify-center gap-1.5">
             {['MP3', 'WAV', 'M4A', 'MP4', 'WEBM', 'FLAC', 'OGG', 'MKV'].map((ext) => (
               <span
                 key={ext}
-                className="px-2 py-0.5 text-[10px] font-mono font-medium rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700"
+                className="px-2 py-0.5 text-[10px] font-mono font-medium rounded bg-[#F5F4EE] text-[#484B52] border border-[#E5E4DE]"
               >
                 .{ext.toLowerCase()}
               </span>
@@ -125,82 +134,96 @@ export const FileUploader: React.FC<FileUploaderProps> = ({
         </div>
       ) : (
         /* Selected File Card */
-        <div className="p-4 rounded-xl border border-teal-500/30 bg-teal-500/5 flex items-center justify-between animate-fade-in">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-teal-500/20 text-teal-600 dark:text-teal-400 flex items-center justify-center">
+        <div className="p-4 rounded-xl border border-[#D0DDD4] bg-[#F9FBF9] flex items-center justify-between animate-fade-in">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 rounded-lg bg-[#EBF1EC] text-[#4E6B56] flex items-center justify-center shrink-0">
               {selectedFile.type.includes('video') ? (
                 <FileVideo className="w-5 h-5" />
               ) : (
                 <FileAudio className="w-5 h-5" />
               )}
             </div>
-            <div>
-              <p className="text-sm font-medium text-slate-900 dark:text-slate-100 truncate max-w-sm">
+            <div className="min-w-0">
+              <p className="text-xs font-semibold text-[#18191B] truncate max-w-md">
                 {selectedFile.name}
               </p>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                {formatFileSize(selectedFile.size)}
+              <p className="text-[11px] text-[#666870]">
+                {formatFileSize(selectedFile.size)} • Ready for processing
               </p>
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={() => setSelectedFile(null)}
-            className="p-1.5 text-slate-400 hover:text-rose-500 transition rounded-lg hover:bg-rose-500/10"
-          >
-            <X className="w-4 h-4" />
-          </button>
+          {!isSubmitting && (
+            <button
+              type="button"
+              onClick={() => setSelectedFile(null)}
+              className="p-1 rounded-md text-[#8C8E96] hover:text-[#18191B] hover:bg-[#E5E4DE]/50 transition"
+              title="Remove file"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
         </div>
       )}
 
-      {error && (
-        <div className="p-3 rounded-lg bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/60 text-xs text-rose-600 dark:text-rose-400 flex items-center gap-2">
-          <AlertCircle className="w-4 h-4 shrink-0" />
-          {error}
-        </div>
-      )}
-
-      {/* Metadata Inputs */}
+      {/* Metadata Form */}
       <div className="space-y-4">
         <div>
-          <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1.5">
-            Meeting Title *
+          <label className="block text-xs font-semibold text-[#18191B] mb-1">
+            Meeting Title <span className="text-rose-500">*</span>
           </label>
           <input
             type="text"
             required
-            placeholder="e.g. Sprint Review & Technical Planning"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+            disabled={isSubmitting}
+            placeholder="e.g. Q4 Product Architecture Sync"
+            className="w-full px-3.5 py-2 rounded-xl text-xs bg-white border border-[#E5E4DE] text-[#18191B] placeholder-[#8C8E96] focus:outline-none focus:ring-2 focus:ring-[#4E6B56] transition"
           />
         </div>
 
         <div>
-          <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1.5">
-            Description / Context (Optional)
+          <label className="block text-xs font-semibold text-[#18191B] mb-1">
+            Description or Agenda Context <span className="text-[#8C8E96] font-normal">(Optional)</span>
           </label>
           <textarea
             rows={2}
-            placeholder="Add relevant meeting background or agenda points..."
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            className="w-full px-3.5 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 resize-none"
+            disabled={isSubmitting}
+            placeholder="Add context about participants, meeting goals, or key topics discussed..."
+            className="w-full px-3.5 py-2 rounded-xl text-xs bg-white border border-[#E5E4DE] text-[#18191B] placeholder-[#8C8E96] focus:outline-none focus:ring-2 focus:ring-[#4E6B56] transition resize-none"
           />
         </div>
       </div>
 
-      <Button
-        type="submit"
-        variant="primary"
-        size="lg"
-        className="w-full"
-        isLoading={isSubmitting}
-        disabled={!selectedFile}
-      >
-        Upload & Process Meeting <ArrowRight className="w-4 h-4" />
-      </Button>
+      {error && (
+        <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 flex items-center gap-2 text-xs text-rose-700 animate-fade-in">
+          <AlertCircle className="w-4 h-4 shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
+
+      {/* Submit Button */}
+      <div className="pt-2">
+        <Button
+          type="submit"
+          variant="primary"
+          size="lg"
+          disabled={!selectedFile || isSubmitting}
+          className="w-full bg-[#4E6B56] hover:bg-[#415B49] text-white text-xs font-semibold py-3 rounded-xl shadow-subtle gap-2"
+        >
+          {isSubmitting ? (
+            <>Uploading & Queuing Background Pipeline...</>
+          ) : (
+            <>
+              Start Local Processing Pipeline
+              <ArrowRight className="w-4 h-4" />
+            </>
+          )}
+        </Button>
+      </div>
     </form>
   );
 };

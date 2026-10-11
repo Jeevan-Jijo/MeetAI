@@ -1,3 +1,4 @@
+import os
 import datetime
 import json
 from typing import List, Optional
@@ -52,6 +53,20 @@ class Recording(Base):
     created_at = Column(DateTime, default=utcnow, nullable=False)
 
     meeting = relationship("Meeting", back_populates="recording")
+
+    @property
+    def is_video(self) -> bool:
+        if self.mime_type and self.mime_type.lower().startswith("audio/"):
+            return False
+        if self.original_filename and self.original_filename.lower().startswith("meeting_recording_"):
+            return False
+        if self.file_path and os.path.exists(self.file_path):
+            from app.services.audio_processor import has_video_stream
+            return has_video_stream(self.file_path)
+        if self.mime_type and self.mime_type.lower().startswith("video/"):
+            return True
+        ext = os.path.splitext(self.original_filename or "")[1].lower()
+        return ext in [".mp4", ".mov", ".mkv", ".avi"]
 
 
 class Speaker(Base):

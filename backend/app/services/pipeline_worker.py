@@ -26,7 +26,13 @@ def is_valid_content(text: Optional[str]) -> bool:
     if not text:
         return False
     t = text.strip().lower()
-    if t in ["none", "n/a", "null", "none.", "none specified", "no deadline specified.", "no description provided.", "unknown"]:
+    if t in [
+        "none", "n/a", "null", "none.", "none specified", "no deadline specified.",
+        "no description provided.", "unknown", "as discussed in session", "as discussed",
+        "tbd", "unassigned", "unspecified", "not specified", "not stated",
+        "sets direction and guidance for upcoming deliverables.",
+        "sets direction and guidance for upcoming deliverables"
+    ]:
         return False
     if any(t.startswith(prefix) for prefix in [
         "no decision", "no action item", "no important date", "no question", "no takeaway", "no event", "no date"
@@ -90,29 +96,46 @@ async def process_meeting_pipeline(meeting_id: int, job_id: int):
         job.started_at = utcnow()
         db.commit()
 
+        import time
+        t_pipeline_start = time.perf_counter()
+
         # Step 1: PREPROCESSING (FFmpeg)
+        t_stage = time.perf_counter()
         await update_job_status(db, job_id, "PREPROCESSING", 10.0, "Normalizing audio with FFmpeg", "Starting FFmpeg audio normalization...")
         recording = meeting.recording
         if not recording:
             raise ValueError("No recording associated with meeting.")
 
         raw_audio_path = recording.file_path
+        if not os.path.isabs(raw_audio_path) or not os.path.exists(raw_audio_path):
+            candidate = settings.UPLOAD_DIR / os.path.basename(recording.file_path)
+            if candidate.exists():
+                raw_audio_path = str(candidate)
+
         normalized_wav_path = str(settings.PROCESSED_DIR / f"meeting_{meeting_id}_norm.wav")
         
         success, msg, duration = await normalize_audio(raw_audio_path, normalized_wav_path)
         if not success:
             raise RuntimeError(f"Audio normalization failed: {msg}")
 
-        recording.normalized_path = normalized_wav_path
+        recording.normalized_path = None  # Temporary intermediate will be cleaned up
         recording.duration_seconds = duration
         meeting.duration_seconds = duration
         db.commit()
+        t_prep_dur = time.perf_counter() - t_stage
+        logger.info(f"[Job {job_id}] Audio normalization completed in {t_prep_dur:.2f}s")
 
         # Step 2: TRANSCRIBING (faster-whisper)
+        t_stage = time.perf_counter()
         await update_job_status(db, job_id, "TRANSCRIBING", 25.0, "Transcribing with faster-whisper", "Transcribing audio segments...")
         transcriber = Transcriber()
         try:
-            raw_segments, detected_language = await asyncio.to_thread(transcriber.transcribe, normalized_wav_path)
+            raw_segments, detected_language = await asyncio.to_thread(
+                transcriber.transcribe,
+                normalized_wav_path,
+                language="en",
+                condition_on_previous_text=False
+            )
         finally:
             transcriber.unload()
 
@@ -125,17 +148,22 @@ async def process_meeting_pipeline(meeting_id: int, job_id: int):
                 "confidence": 0.5
             }]
             detected_language = "en"
+        t_trans_dur = time.perf_counter() - t_stage
+        logger.info(f"[Job {job_id}] Transcription completed in {t_trans_dur:.2f}s")
 
         # Step 3: DIARIZING (pyannote.audio)
+        t_stage = time.perf_counter()
         await update_job_status(db, job_id, "DIARIZING", 45.0, "Speaker Diarization", "Detecting speaker turns...")
         diarizer = Diarizer()
         try:
             speaker_turns, is_real, diar_msg = await asyncio.to_thread(diarizer.diarize, normalized_wav_path)
-            await update_job_status(db, job_id, "DIARIZING", 50.0, "Speaker Diarization", diar_msg)
+            t_diar_dur = time.perf_counter() - t_stage
+            await update_job_status(db, job_id, "DIARIZING", 50.0, "Speaker Diarization", f"{diar_msg} (elapsed: {t_diar_dur:.2f}s)")
         finally:
             diarizer.unload()
 
         # Step 4: ALIGNING (Segment + Speaker matching)
+        t_stage = time.perf_counter()
         await update_job_status(db, job_id, "ALIGNING", 55.0, "Aligning transcript & speakers", "Assigning speaker tags to transcript segments...")
         aligned_segs, speaker_stats = align_transcript_with_speakers(raw_segments, speaker_turns)
 
@@ -182,8 +210,11 @@ async def process_meeting_pipeline(meeting_id: int, job_id: int):
             created_segs.append(t_seg)
 
         db.commit()
+        t_align_dur = time.perf_counter() - t_stage
+        logger.info(f"[Job {job_id}] Alignment completed in {t_align_dur:.2f}s")
 
         # Step 5: CHUNKING
+        t_stage = time.perf_counter()
         await update_job_status(db, job_id, "CHUNKING", 65.0, "Semantic Chunking", "Creating metadata-preserving semantic chunks...")
         seg_dicts = [
             {
@@ -196,8 +227,11 @@ async def process_meeting_pipeline(meeting_id: int, job_id: int):
             for s in created_segs
         ]
         chunks = chunk_transcript(seg_dicts, target_words_per_chunk=350, overlap_words=40)
+        t_chunk_dur = time.perf_counter() - t_stage
+        logger.info(f"[Job {job_id}] Semantic chunking completed in {t_chunk_dur:.2f}s ({len(chunks)} chunks)")
 
         # Step 6: ANALYZING (Ollama LLM structured extractions)
+        t_stage = time.perf_counter()
         await update_job_status(db, job_id, "ANALYZING", 75.0, "LLM Extraction via Ollama", "Extracting summary, decisions, action items, dates...")
         llm = LLMService()
         meeting_date_str = meeting.meeting_date.strftime("%Y-%m-%d")
@@ -212,6 +246,11 @@ async def process_meeting_pipeline(meeting_id: int, job_id: int):
         # Synthesize final document
         speaker_names = [s.display_name for s in created_speakers.values()]
         analysis = await llm.synthesize_analysis(chunk_results, meeting.title, meeting_date_str, speaker_names)
+
+        # Ground and verify extractions strictly against canonical transcript segments
+        if analysis:
+            from app.services.grounding_verifier import verify_and_ground_analysis
+            analysis = verify_and_ground_analysis(analysis, created_segs)
 
         # Clear existing extractions
         db.query(MeetingSummary).filter(MeetingSummary.meeting_id == meeting_id).delete()
@@ -261,8 +300,8 @@ async def process_meeting_pipeline(meeting_id: int, job_id: int):
                     db.add(Decision(
                         meeting_id=meeting_id,
                         decision=dec.decision,
-                        context=dec.context,
-                        impact=dec.impact,
+                        context=dec.context if is_valid_content(dec.context) else None,
+                        impact=dec.impact if is_valid_content(dec.impact) else None,
                         source_segment_ids=dec.source_segment_ids,
                         source_text=dec.source_text,
                         start_time=dec.start_time,
@@ -276,7 +315,7 @@ async def process_meeting_pipeline(meeting_id: int, job_id: int):
                     db.add(ActionItem(
                         meeting_id=meeting_id,
                         description=act.description,
-                        assignee=act.assignee if is_valid_content(act.assignee) else "Unassigned",
+                        assignee=act.assignee if (is_valid_content(act.assignee) and act.assignee.strip().lower() not in ["team member", "speaker", "unknown speaker", "user", "someone"]) else "Unassigned",
                         deadline=act.deadline if is_valid_content(act.deadline) else None,
                         priority=act.priority or "Medium",
                         is_completed=False,
@@ -289,12 +328,12 @@ async def process_meeting_pipeline(meeting_id: int, job_id: int):
 
             # Save Dates
             for dt in analysis.important_dates:
-                if is_valid_content(dt.raw_phrase):
+                if is_valid_content(dt.raw_phrase) or is_valid_content(dt.description):
                     db.add(ImportantDate(
                         meeting_id=meeting_id,
-                        raw_phrase=dt.raw_phrase,
+                        raw_phrase=dt.raw_phrase if is_valid_content(dt.raw_phrase) else "Unspecified date",
                         normalized_date=dt.normalized_date,
-                        description=dt.description if is_valid_content(dt.description) else dt.raw_phrase,
+                        description=dt.description if is_valid_content(dt.description) else (dt.raw_phrase or "Unspecified date"),
                         needs_confirmation=dt.needs_confirmation,
                         source_segment_ids=dt.source_segment_ids,
                         source_text=dt.source_text,
@@ -309,7 +348,7 @@ async def process_meeting_pipeline(meeting_id: int, job_id: int):
                     db.add(ScheduledEvent(
                         meeting_id=meeting_id,
                         event_title=ev.event_title,
-                        date_phrase=ev.date_phrase,
+                        date_phrase=ev.date_phrase if is_valid_content(ev.date_phrase) else "Unspecified date",
                         normalized_datetime=ev.normalized_datetime,
                         participants=ev.participants,
                         source_segment_ids=ev.source_segment_ids,
@@ -325,7 +364,7 @@ async def process_meeting_pipeline(meeting_id: int, job_id: int):
                     db.add(Takeaway(
                         meeting_id=meeting_id,
                         takeaway=tk.takeaway,
-                        category=tk.category,
+                        category=tk.category if is_valid_content(tk.category) else "General",
                         source_segment_ids=tk.source_segment_ids,
                         source_text=tk.source_text,
                         start_time=tk.start_time,
@@ -349,23 +388,45 @@ async def process_meeting_pipeline(meeting_id: int, job_id: int):
                     ))
 
         db.commit()
+        t_llm_dur = time.perf_counter() - t_stage
+        logger.info(f"[Job {job_id}] LLM analysis completed in {t_llm_dur:.2f}s")
 
         # Step 7: INDEXING (Local FAISS + sentence-transformers)
+        t_stage = time.perf_counter()
         await update_job_status(db, job_id, "INDEXING", 90.0, "Building vector index", "Indexing transcript embeddings for local RAG chatbot...")
         vstore = MeetingVectorStore(meeting_id)
         await asyncio.to_thread(vstore.build_index, chunks)
+        t_idx_dur = time.perf_counter() - t_stage
+        logger.info(f"[Job {job_id}] Vector indexing completed in {t_idx_dur:.2f}s")
 
         # Step 8: FINALIZING
+        t_total_dur = time.perf_counter() - t_pipeline_start
         await update_job_status(db, job_id, "FINALIZING", 98.0, "Finalizing meeting results", "Assembling meeting minutes...")
-        await update_job_status(db, job_id, "COMPLETED", 100.0, "Complete", "Meeting Intelligence pipeline completed successfully!")
+        await update_job_status(
+            db, job_id, "COMPLETED", 100.0, "Complete",
+            f"Meeting Intelligence pipeline completed successfully in {t_total_dur:.2f}s "
+            f"(prep: {t_prep_dur:.2f}s, trans: {t_trans_dur:.2f}s, diar: {t_diar_dur:.2f}s, "
+            f"align: {t_align_dur:.2f}s, chunk: {t_chunk_dur:.2f}s, llm: {t_llm_dur:.2f}s, index: {t_idx_dur:.2f}s)"
+        )
 
     except Exception as e:
         err_stack = traceback.format_exc()
         logger.error(f"Pipeline error for meeting {meeting_id}: {err_stack}")
+        try:
+            db.rollback()
+        except Exception:
+            pass
         await update_job_status(
             db, job_id, "FAILED", 100.0, "Pipeline Failed",
             log_msg=f"Error: {str(e)}",
             error_msg=str(e)
         )
     finally:
+        # Delete temporary WAV intermediate file after processing (whether completed or failed)
+        try:
+            if "normalized_wav_path" in locals() and normalized_wav_path and os.path.exists(normalized_wav_path):
+                os.remove(normalized_wav_path)
+                logger.info(f"[Job {job_id}] Safely removed temporary WAV intermediate {normalized_wav_path}")
+        except Exception as cleanup_err:
+            logger.warning(f"[Job {job_id}] Failed to remove temporary WAV intermediate: {cleanup_err}")
         db.close()
