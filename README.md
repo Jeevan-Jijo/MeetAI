@@ -1,4 +1,4 @@
-# Meeting Intelligence System (MIS)
+# MeetAI
 
 > **A 100% Local-First, Privacy-Preserving AI Meeting Intelligence System**  
 > Runs entirely on your local Windows PC with local GPU/CPU inference, Ollama (`qwen3:8b`), faster-whisper, PyAnnote diarization, and FAISS vector retrieval. Zero external API calls, zero subscriptions, zero cloud data leaks.
