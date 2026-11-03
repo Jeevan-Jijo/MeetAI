@@ -2,20 +2,20 @@
 
 import React from 'react';
 import Link from 'next/link';
-import { 
-  ArrowRight, 
-  Sparkles, 
-  ShieldCheck, 
-  Cpu, 
-  FileText, 
-  CheckCircle2, 
-  Play, 
-  Bot, 
-  Download, 
-  Clock, 
-  Users, 
-  Lock, 
-  Search, 
+import {
+  ArrowRight,
+  Sparkles,
+  ShieldCheck,
+  Cpu,
+  FileText,
+  CheckCircle2,
+  Play,
+  Bot,
+  Download,
+  Clock,
+  Users,
+  Lock,
+  Search,
   HardDrive,
   Check,
   ChevronRight,
@@ -36,10 +36,7 @@ export default function LandingPage() {
             </div>
             <div>
               <span className="font-semibold text-sm text-[#18191B] tracking-tight block leading-tight">
-                MIS Intelligence
-              </span>
-              <span className="text-[10px] text-[#666870] font-medium tracking-wide">
-                Local-First Meeting System
+                MIS
               </span>
             </div>
           </Link>
@@ -73,7 +70,7 @@ export default function LandingPage() {
           {/* Trust Badge */}
           <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#EBF1EC] border border-[#D0DDD4] text-[#34483A] text-xs font-medium animate-fade-in shadow-subtle">
             <ShieldCheck className="w-4 h-4 text-[#4E6B56]" />
-            <span>100% Local Intelligence • Zero Cloud APIs • RTX 4060 GPU Accelerated</span>
+            <span>100% Local Intelligence • Zero Cloud APIs • GPU Accelerated</span>
           </div>
 
           {/* Headline */}
@@ -467,7 +464,6 @@ export default function LandingPage() {
               M
             </div>
             <span className="font-semibold text-[#18191B]">Meeting Intelligence System</span>
-            <span>— 100% Local-First SaaS</span>
           </div>
 
           <div className="flex items-center gap-6 text-[#666870]">

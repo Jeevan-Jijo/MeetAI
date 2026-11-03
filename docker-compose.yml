@@ -1,33 +1,85 @@
-version: '3.8'
-
 services:
+
+  # Backend API service (FastAPI + faster-whisper + sentence-transformers)
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
+    container_name: mis-backend
     ports:
       - "8000:8000"
     environment:
-      - DATABASE_URL=sqlite:///./data/mis.db
-      - OLLAMA_BASE_URL=http://host.docker.internal:11434
-      - OLLAMA_MODEL=qwen3:8b
+      - ENVIRONMENT=production
+      - MIS_DATA_DIR=/app/data
+      - DATABASE_URL=sqlite:////app/data/mis.db
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen3:8b}
+      - OLLAMA_FALLBACK_MODELS=${OLLAMA_FALLBACK_MODELS:-qwen2.5:7b,llama3.2:3b,mistral:7b}
       - HF_TOKEN=${HF_TOKEN:-}
-      - WHISPER_MODEL=openai/whisper-large-v3-turbo
-      - WHISPER_DEVICE=cpu
+      - WHISPER_MODEL=${WHISPER_MODEL:-base.en}
+      - WHISPER_FALLBACK_MODEL=${WHISPER_FALLBACK_MODEL:-base.en}
+      - WHISPER_DEVICE=${WHISPER_DEVICE:-cpu}
+      - WHISPER_COMPUTE_TYPE=${WHISPER_COMPUTE_TYPE:-int8}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-sentence-transformers/all-MiniLM-L6-v2}
+      - EMBEDDING_DEVICE=${EMBEDDING_DEVICE:-cpu}
+      - MAX_WORKERS=${MAX_WORKERS:-2}
     volumes:
-      - ./backend/data:/app/data
+      - mis_data:/app/data
     extra_hosts:
+      # Allows backend container to connect to Ollama running on host OS
       - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 25s
     restart: unless-stopped
+    networks:
+      - mis-network
 
+  # Frontend Web UI (Next.js 14)
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        - NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api/v1
+    container_name: mis-frontend
     ports:
       - "3000:3000"
     environment:
       - NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api/v1
+      - BACKEND_INTERNAL_URL=http://backend:8000/api/v1/:path*
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     restart: unless-stopped
+    networks:
+      - mis-network
+
+  # Optional Containerized Ollama Service
+  # Run with: docker compose --profile with-ollama up -d
+  ollama:
+    image: ollama/ollama:latest
+    container_name: mis-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: unless-stopped
+    profiles:
+      - with-ollama
+    networks:
+      - mis-network
+
+volumes:
+  mis_data:
+    name: mis_data
+  ollama_data:
+    name: mis_ollama_data
+
+networks:
+  mis-network:
+    name: mis-network
+    driver: bridge
