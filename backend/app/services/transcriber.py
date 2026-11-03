@@ -55,14 +55,28 @@ def detect_device_and_compute_type() -> Tuple[str, str]:
         
     return "cpu", "int8"
 
+# Map raw OpenAI Hugging Face repo names to CTranslate2 formatted models for faster-whisper
+WHISPER_MODEL_ALIASES: Dict[str, str] = {
+    "openai/whisper-large-v3-turbo": "deepdml/faster-whisper-large-v3-turbo",
+    "openai/whisper-large-v3": "Systran/faster-whisper-large-v3",
+    "openai/whisper-large-v2": "Systran/faster-whisper-large-v2",
+    "openai/whisper-medium": "Systran/faster-whisper-medium",
+    "openai/whisper-small": "Systran/faster-whisper-small",
+    "openai/whisper-base": "Systran/faster-whisper-base",
+    "openai/whisper-base.en": "base.en",
+    "openai/whisper-tiny": "Systran/faster-whisper-tiny",
+}
+
 _CACHED_TRANSCRIBER_MODEL = None
 _CACHED_MODEL_KEY = None
 
 class Transcriber:
     def __init__(self, model_size_or_path: str = None):
-        self.model_name = model_size_or_path or settings.WHISPER_MODEL
+        raw_name = model_size_or_path or settings.WHISPER_MODEL
+        self.model_name = WHISPER_MODEL_ALIASES.get(raw_name, raw_name)
         self.device, self.compute_type = detect_device_and_compute_type()
         self.model = None
+
 
     def load_model(self):
         """Load or reuse the cached faster-whisper model."""
